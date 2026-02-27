@@ -5,8 +5,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Terminal Moons : Deep Value", layout="wide")
-st.title("🏦 Terminal Expert : Anticipation & Stratégie Baissière")
+st.set_page_config(page_title="Terminal Expert Moons", layout="wide")
+st.title("🏦 Terminal Expert : Stratégie & Anticipation")
 
 with st.sidebar:
     st.header("⚙️ Configuration")
@@ -32,7 +32,6 @@ if btn_analyse or btn_anticipe:
             swing_high, swing_low = df['High'].max(), df['Low'].min()
             diff = swing_high - swing_low
             
-            # Définition des niveaux Fibonacci
             fibo = {
                 "0.5": swing_high - (0.5 * diff),
                 "0.618": swing_high - (0.618 * diff),
@@ -41,52 +40,71 @@ if btn_analyse or btn_anticipe:
                 "1.618": swing_high + (0.618 * diff)
             }
 
-            # Tendance via Moyenne Mobile
             ma20 = df['Close'].rolling(window=20).mean().iloc[-1]
             est_haussier = px_actuel > ma20
-            tendance_txt = "HAUSSIER 🟢" if est_haussier else "BAISSIER 🔴"
 
-            # --- 1. AFFICHAGE PRIX & TENDANCE ---
+            # --- 1. AFFICHAGE PRIX & TENDANCE (COMMUN) ---
             st.divider()
             st.markdown(f"<h1 style='text-align: center; color: #1E90FF;'>{ticker} : {px_actuel:.2f} $</h1>", unsafe_allow_html=True)
-            st.markdown(f"<h3 style='text-align: center; color: {'green' if est_haussier else 'red'};'>Marché {tendance_txt}</h3>", unsafe_allow_html=True)
+            st.markdown(f"<h3 style='text-align: center; color: {'green' if est_haussier else 'red'};'>Marché {'HAUSSIER 🟢' if est_haussier else 'BAISSIER 🔴'}</h3>", unsafe_allow_html=True)
             st.divider()
 
-            # --- 2. LOGIQUE D'ANTICIPATION DYNAMIQUE ---
-            # Si le prix est déjà sous le 0.618 (cas de ton TSLA), on vise le 0.786 ou 0.886
-            if px_actuel < fibo["0.618"]:
-                p_entree_visée = fibo["0.786"] if px_actuel > fibo["0.786"] else fibo["0.886"]
-                conseil = "Recherche d'un point de retournement (Deep Value)"
-            else:
-                p_entree_visée = fibo["0.618"]
-                conseil = "Attente d'un repli standard (Soldes)"
+            # --- 2. LOGIQUE DIFFÉRENCIÉE ---
+            
+            if btn_analyse:
+                st.subheader("🚀 Analyse du Signal Immédiat")
+                # Vérification si on est dans la zone Golden Pocket maintenant
+                en_zone = fibo["0.786"] <= px_actuel <= fibo["0.5"]
+                
+                if en_zone:
+                    st.success(f"🎯 SIGNAL VALIDÉ : Le prix est actuellement dans la zone de décision ({px_actuel:.2f} $).")
+                else:
+                    st.warning(f"⏳ ATTENTE : Le prix actuel n'est pas dans une zone d'achat optimale.")
+                
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Prix Actuel", f"{px_actuel:.2f} $")
+                c2.metric("Zone Entrée (0.5)", f"{fibo['0.5']:.2f} $")
+                c3.metric("Plancher (0.786)", f"{fibo['0.786']:.2f} $")
 
-            # --- 3. RÉCAPITULATIF STRATÉGIQUE ---
-            st.write(f"### 🎯 Stratégie d'Anticipation : {conseil}")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Prix Cible Entrée", f"{p_entree_visée:.2f} $", delta=f"{p_entree_visée - px_actuel:.2f} $")
-            c2.metric("Plancher Critique", f"{fibo['0.886']:.2f} $")
-            c3.metric("Objectif Rebond", f"{swing_high:.2f} $")
-            c4.metric("Stop Invalidation", f"{swing_low:.2f} $")
+            if btn_anticipe:
+                st.subheader("📉 Stratégie d'Anticipation (Ordre Limite)")
+                
+                # Si le prix est déjà très bas (cas TSLA), on cherche un rebond plus profond
+                p_cible = fibo["0.786"] if px_actuel > fibo["0.786"] else fibo["0.886"]
+                
+                st.info(f"💡 Planification : Ne pas acheter au prix actuel. Placer un ordre plus bas.")
+                
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Prix Cible Entrée", f"{p_cible:.2f} $", delta=f"{p_cible - px_actuel:.2f} $")
+                c2.metric("Objectif Rebond", f"{swing_high:.2f} $")
+                
+                # Calcul Quantité pour l'anticipation
+                dist_stop = abs(p_cible - swing_low)
+                qte = int((capital * risk_pc) / dist_stop) if dist_stop > 0 else 0
+                
+                c3.metric("Risque (Perte)", f"-{(qte * dist_stop):.2f} $")
+                c4.metric("Quantité à prévoir", f"{qte} titres")
+                
+                st.markdown(f"👉 **Action suggérée** : Placer un ordre **limite d'achat à {p_cible:.2f} $**.")
 
-            # Gestion du Risque
-            dist_stop = abs(p_entree_visée - swing_low)
-            qte = int((capital * risk_pc) / dist_stop) if dist_stop > 0 else 0
-            st.info(f"👉 **Plan d'entrée** : Placer un ordre limite à **{p_entree_visée:.2f} $** avec **{qte}** titres.")
-
-            # --- 4. GRAPHIQUE ---
+            # --- 3. GRAPHIQUE ---
             fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.7, 0.3])
             fig.add_trace(go.Candlestick(x=df_m.index, open=df_m['Open'], high=df_m['High'], low=df_m['Low'], close=df_m['Close'], name='Prix'), row=1, col=1)
             
-            # Zone de soldes adaptée (si prix est bas, on colore la zone sous le prix actuel)
-            fig.add_hrect(y0=fibo["0.886"], y1=p_entree_visée, fillcolor="rgba(255, 0, 0, 0.1)", line_width=0, annotation_text="ZONE DE REBOND ANTICIPÉE", row=1, col=1)
+            # Zone Pastel dynamique selon le bouton
+            y_high = fibo["0.5"] if btn_analyse else p_cible + (diff * 0.05)
+            y_low = fibo["0.786"] if btn_analyse else p_cible - (diff * 0.05)
             
-            # Niveaux Fibo
-            colors = {"0.5": "gray", "0.618": "orange", "0.786": "red", "0.886": "purple", "1.618": "cyan"}
+            fig.add_hrect(y0=y_low, y1=y_high, fillcolor="rgba(255, 215, 0, 0.12)", line_width=0, 
+                         annotation_text="ZONE D'INTERVENTION", annotation_position="top left", row=1, col=1)
+            
+            # Lignes Fibo
+            colors = {"0.5": "#00ff00", "0.618": "#00ced1", "0.786": "#ff4d4d", "0.886": "#ff00ff"}
             for k, v in fibo.items():
-                fig.add_hline(y=v, line_color=colors[k], annotation_text=f"{k} ({v:.2f}$)", annotation_position="bottom right", row=1, col=1)
+                if k in colors:
+                    fig.add_hline(y=v, line_color=colors[k], annotation_text=f"{k} ({v:.2f}$)", annotation_position="bottom right", row=1, col=1)
 
             st.plotly_chart(fig, use_container_width=True)
                 
     except Exception as e:
-        st.error(f"Erreur : {e}")
+        st.error(f"Erreur technique : {e}")
