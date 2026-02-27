@@ -6,14 +6,20 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Terminal Moons Mensuel", layout="wide")
-st.title("🏦 Terminal Expert : Routine Mensuelle & Analyse de Phase")
+st.set_page_config(page_title="Terminal Moons Dynamique", layout="wide")
+st.title("🏦 Terminal Expert : Calibration Dynamique & Phases")
 
 with st.sidebar:
     st.header("⚙️ Configuration")
     ticker = st.text_input("🔍 Symbole", value="TSLA").upper()
     capital = st.number_input("💰 Capital ($)", value=10000)
     risk_pc = st.slider("⚠️ Risque par trade (%)", 0.5, 5.0, 1.0) / 100
+    
+    st.divider()
+    # NOUVEAU : Calibration dynamique de la période de calcul
+    st.subheader("📏 Calibration Dynamique")
+    lookback = st.slider("Fenêtre du Swing (jours)", 7, 90, 30)
+    st.info(f"Analyse basée sur les {lookback} derniers jours.")
 
 col_btn1, col_btn2 = st.columns(2)
 btn_analyse = col_btn1.button("🚀 Analyser le Signal Actuel")
@@ -21,19 +27,21 @@ btn_anticipe = col_btn2.button("📉 Anticiper les Soldes / Hausse")
 
 if btn_analyse or btn_anticipe:
     try:
-        # 1. RÉDUCTION DE L'INTERVALLE À 30 JOURS (Routine Mensuelle)
-        df = yf.download(ticker, period="30d", interval="1d", auto_adjust=True, progress=False)
+        # 1. RÉCUPÉRATION DYNAMIQUE (Utilise la variable 'lookback')
+        df = yf.download(ticker, period=f"{lookback + 10}d", interval="1d", auto_adjust=True, progress=False)
         df_m = yf.download(ticker, period="15d", interval="15m", auto_adjust=True, progress=False)
         
         if not df.empty and not df_m.empty:
             if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
             if isinstance(df_m.columns, pd.MultiIndex): df_m.columns = df_m.columns.get_level_values(0)
 
-            # --- CALCULS ---
-            px_actuel = df_m['Close'].iloc[-1]
-            swing_high = df['High'].max()
-            swing_low = df['Low'].min()
+            # --- CALCULS BASÉS SUR LA CALIBRATION ---
+            df_lookback = df.tail(lookback)
+            swing_high = df_lookback['High'].max()
+            swing_low = df_lookback['Low'].min()
             diff = swing_high - swing_low
+            
+            px_actuel = df_m['Close'].iloc[-1]
             
             fibo = {
                 "0.5": swing_high - (0.5 * diff),
@@ -42,27 +50,24 @@ if btn_analyse or btn_anticipe:
                 "0.886": swing_high - (0.886 * diff)
             }
 
-            # 2. DÉTECTION DE LA PHASE DE CONSOLIDATION
-            # On mesure la volatilité relative (ATR simplifié) sur les 10 derniers jours
-            recent_high = df['High'].tail(10).max()
-            recent_low = df['Low'].tail(10).min()
-            range_percent = (recent_high - recent_low) / recent_low * 100
-            
-            # Seuil de consolidation : si le prix bouge de moins de 5% sur 10 jours
-            est_en_consolidation = range_percent < 5.0
-            phase_txt = "CONSOLIDATION (Range) 🟦" if est_en_consolidation else "IMPULSION (Tendance) 🚀"
+            # 2. DÉTECTION DE LA PHASE DE CONSOLIDATION (Dynamique)
+            # On considère une consolidation si le range est < 5% sur 1/3 de la période choisie
+            check_range = max(int(lookback/3), 5)
+            recent_range = (df['High'].tail(check_range).max() - df['Low'].tail(check_range).min()) / df['Low'].tail(check_range).min() * 100
+            est_en_consolidation = recent_range < 5.0
+            phase_txt = "CONSOLIDATION 🟦" if est_en_consolidation else "IMPULSION 🚀"
 
             # --- 1. AFFICHAGE PRIX & PHASE ---
             st.divider()
             st.markdown(f"<h1 style='text-align: center; color: #1E90FF;'>{ticker} : {px_actuel:.2f} $</h1>", unsafe_allow_html=True)
-            st.markdown(f"<h3 style='text-align: center;'>Phase de Marché : {phase_txt}</h3>", unsafe_allow_html=True)
+            st.markdown(f"<h3 style='text-align: center;'>Phase ({lookback}j) : {phase_txt}</h3>", unsafe_allow_html=True)
             st.divider()
 
             # --- 2. LOGIQUE SELON LE BOUTON ---
             if btn_analyse:
                 st.subheader("🚀 Analyse du Signal")
                 if est_en_consolidation:
-                    st.warning("⚠️ Prudence : Le prix est en phase latérale. Les niveaux Fibonacci sont moins fiables en consolidation.")
+                    st.warning(f"⚠️ Marché latéral sur les {check_range} derniers jours. Attendez une cassure.")
                 
                 en_zone = fibo["0.786"] <= px_actuel <= fibo["0.5"]
                 if en_zone:
@@ -71,7 +76,8 @@ if btn_analyse or btn_anticipe:
                     st.info("Le prix est actuellement hors de la zone d'achat optimale.")
 
             if btn_anticipe:
-                st.subheader("📉 Plan d'Anticipation Mensuel")
+                st.subheader("📉 Plan d'Anticipation Dynamique")
+                # Gestion Deep Value si déjà sous 0.618
                 p_cible = fibo["0.786"] if px_actuel > fibo["0.786"] else fibo["0.886"]
                 
                 c1, c2, c3 = st.columns(3)
@@ -80,7 +86,7 @@ if btn_analyse or btn_anticipe:
                 dist_stop = abs(p_cible - swing_low)
                 qte = int((capital * risk_pc) / dist_stop) if dist_stop > 0 else 0
                 
-                c2.metric("Perte Max (Risque)", f"-{(qte * dist_stop):.2f} $")
+                c2.metric("Risque (Perte)", f"-{(qte * dist_stop):.2f} $")
                 c3.metric("Quantité suggérée", f"{qte} titres")
 
             # --- 3. GRAPHIQUE ---
