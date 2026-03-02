@@ -1,12 +1,13 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Terminal Moons Pro", layout="wide")
-st.title("🏦 Terminal Expert : Décisionnelle Assistée (Volume & Tendance)")
+st.set_page_config(page_title="Terminal Moons Intelligence", layout="wide")
+st.title("🏦 Terminal Expert : Analyse de Confluence & Décision")
 
 with st.sidebar:
     st.header("⚙️ Configuration")
@@ -21,14 +22,15 @@ btn_anticipe = col_btn2.button("📉 Anticiper : Acheter ou Vendre")
 
 if btn_analyse or btn_anticipe:
     try:
-        df = yf.download(ticker, period=f"{lookback+10}d", interval="1d", auto_adjust=True, progress=False)
-        df_m = yf.download(ticker, period="5d", interval="15m", auto_adjust=True, progress=False)
+        # Données
+        df = yf.download(ticker, period=f"{lookback+20}d", interval="1d", auto_adjust=True, progress=False)
+        df_m = yf.download(ticker, period="10d", interval="15m", auto_adjust=True, progress=False)
         
         if not df.empty and not df_m.empty:
             if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
             if isinstance(df_m.columns, pd.MultiIndex): df_m.columns = df_m.columns.get_level_values(0)
 
-            # --- CALCULS ---
+            # --- CALCULS ANALYTIQUES ---
             px_actuel = df_m['Close'].iloc[-1]
             swing_high, swing_low = df['High'].tail(lookback).max(), df['Low'].tail(lookback).min()
             diff = swing_high - swing_low
@@ -40,59 +42,67 @@ if btn_analyse or btn_anticipe:
                 "1.618": swing_high + (0.618 * diff)
             }
 
-            # Tendance & Volume
+            # Tendance (MA20) & Momentum (RSI simplifié)
             ma20 = df['Close'].rolling(20).mean().iloc[-1]
+            delta = df['Close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            perte = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs = gain / perte
+            rsi = 100 - (100 / (1 + rs.iloc[-1]))
+            
             vol_moyen = df_m['Volume'].rolling(20).mean().iloc[-1]
-            vol_actuel = df_m['Volume'].iloc[-1]
-            poussée_volume = vol_actuel > vol_moyen * 1.5
+            vol_confirm = df_m['Volume'].iloc[-1] > vol_moyen * 1.3
 
             # --- 1. AFFICHAGE PRIX LIVE ---
             st.divider()
             st.markdown(f"<h1 style='text-align: center; color: #1E90FF;'>{ticker} : {px_actuel:.2f} $</h1>", unsafe_allow_html=True)
             
-            # Badge de Tendance (Correction Point 1)
-            tendance_txt = "HAUSSIER 🟢" if px_actuel > ma20 else "BAISSIER 🔴"
-            st.markdown(f"<h3 style='text-align: center;'>Tendance : {tendance_txt} | Volume : {'🔥 Fort' if poussée_volume else '💤 Faible'}</h3>", unsafe_allow_html=True)
+            # État du Marché
+            tend_label = "HAUSSIER 🟢" if px_actuel > ma20 else "BAISSIER 🔴"
+            rsi_label = "SURACHAT ⚠️" if rsi > 70 else "SURVENTE 📉" if rsi < 30 else "NEUTRE ⚖️"
+            st.markdown(f"<h3 style='text-align: center;'>Tendance : {tend_label} | Momentum : {rsi_label} (RSI: {rsi:.0f})</h3>", unsafe_allow_html=True)
             st.divider()
 
-            # --- 2. LOGIQUE DE DÉCISION (Correction Point 2 & 3) ---
-            if btn_anticipe:
-                st.subheader("📉 Aide à la Décision")
-                
-                # Correction : Pas de "Soldes" si on coule sans volume acheteur
-                if px_actuel <= fibo["0.5"] and px_actuel >= fibo["0.786"]:
-                    if px_actuel < ma20 and not poussée_volume:
-                        st.warning("⚠️ ZONE DE SOLDES ATTEINTE, mais la tendance est BAISSIÈRE sans volume acheteur. Attendez une bougie verte de confirmation.")
-                    elif poussée_volume:
-                        st.success("🛒 SOLDES VALIDÉES : Volume important détecté dans la zone. Opportunité d'achat.")
-                    else:
-                        st.info("🛒 Zone de soldes atteinte. Surveillez le retournement.")
+            # --- 2. LE VERDICT DE L'AGENT ---
+            st.subheader("🤖 Verdict de l'Agent")
+            
+            # Logique de décision
+            is_in_fibo = fibo["0.786"] <= px_actuel <= fibo["0.5"]
+            is_overextended = px_actuel >= fibo["1.618"] * 0.97
+            
+            if is_in_fibo:
+                if px_actuel > ma20 and vol_confirm:
+                    st.success("🔥 SIGNAL D'ACHAT FORT : Confluence Fibo + Tendance + Volume.")
+                elif rsi < 30:
+                    st.success("🛒 ACHAT OPPORTUNISTE : Zone de soldes + Survente extrême.")
+                else:
+                    st.info("🟡 ATTENTE : Zone de soldes atteinte, mais manque de volume ou tendance adverse.")
+            elif is_overextended:
+                st.error("🚨 SIGNAL DE VENTE : Objectif maximum atteint. Risque de retournement élevé.")
+            else:
+                st.write("🔭 OBSERVATION : Aucun signal majeur. Le prix cherche sa direction.")
 
-                if px_actuel >= fibo["1.618"] * 0.98:
-                    st.error("🚨 OBJECTIF MAX ATTEINT : Retracement Fibonacci 1.618 touché. Vendez.")
+            # --- 3. RÉCAPITULATIF FINANCIER ---
+            dist_stop = abs(px_actuel - fibo["0.786"])
+            qte = int((capital * risk_pc) / dist_stop) if dist_stop > 0 else 0
+            
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Risque (10%)", f"-{(qte * dist_stop):.2f} $")
+            c2.metric("Quantité", f"{qte} titres")
+            c3.metric("Objectif Max", f"{fibo['1.618']:.2f} $")
 
-                # Calcul Quantité sur PRIX RÉEL (Correction Point 3)
-                dist_stop_reel = abs(px_actuel - fibo["0.786"])
-                qte = int((capital * risk_pc) / dist_stop_reel) if dist_stop_reel > 0 else 0
-                
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Risque Réel ($)", f"-{(qte * dist_stop_reel):.2f} $")
-                c2.metric("Quantité (Prix Actuel)", f"{qte} titres")
-                c3.metric("Objectif Vente", f"{fibo['1.618']:.2f} $")
-
-            # --- 3. GRAPHIQUE ---
+            # --- 4. GRAPHIQUE ---
             fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
             fig.add_trace(go.Candlestick(x=df_m.index, open=df_m['Open'], high=df_m['High'], low=df_m['Low'], close=df_m['Close'], name='Prix'), row=1, col=1)
             
             # Zones
             fig.add_hrect(y0=fibo["0.786"], y1=fibo["0.5"], fillcolor="rgba(0, 255, 0, 0.1)", line_width=0, annotation_text="SOLDES", annotation_position="top left", row=1, col=1)
+            fig.add_hrect(y0=fibo["1.618"]*0.98, y1=fibo["1.618"]*1.02, fillcolor="rgba(255, 0, 0, 0.1)", line_width=0, annotation_text="VENTE MAX", annotation_position="top left", row=1, col=1)
             
-            # Lignes
-            colors = {"0.5": "#00FF00", "0.618": "#00CED1", "0.786": "#FF4D4D", "1.618": "#FF00FF"}
             for k, v in fibo.items():
-                fig.add_hline(y=v, line_color=colors[k], annotation_text=f"{k} ({v:.2f}$)", annotation_position="bottom right", row=1, col=1)
+                fig.add_hline(y=v, line_color="rgba(255, 255, 255, 0.2)", annotation_text=f"{k} ({v:.2f}$)", annotation_position="bottom right", row=1, col=1)
 
-            # Volume indicateur (Point 4)
+            # Volume
             v_colors = ['#26a69a' if v > vol_moyen else '#ef5350' for v in df_m['Volume']]
             fig.add_trace(go.Bar(x=df_m.index, y=df_m['Volume'], marker_color=v_colors, name='Volume'), row=2, col=1)
             
