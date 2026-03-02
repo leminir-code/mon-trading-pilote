@@ -7,7 +7,7 @@ from plotly.subplots import make_subplots
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Terminal Moons Intelligence", layout="wide")
-st.title("🏦 Terminal Expert : Analyse de Confluence & Décision")
+st.title("🏦 Terminal Expert : Confluence Ichimoku & Fibonacci")
 
 with st.sidebar:
     st.header("⚙️ Configuration")
@@ -22,15 +22,28 @@ btn_anticipe = col_btn2.button("📉 Anticiper : Acheter ou Vendre")
 
 if btn_analyse or btn_anticipe:
     try:
-        # Données
-        df = yf.download(ticker, period=f"{lookback+20}d", interval="1d", auto_adjust=True, progress=False)
-        df_m = yf.download(ticker, period="10d", interval="15m", auto_adjust=True, progress=False)
+        # Données nécessaires pour Ichimoku (besoin de plus de recul pour Senkou B)
+        df = yf.download(ticker, period=f"{lookback+52}d", interval="1d", auto_adjust=True, progress=False)
+        df_m = yf.download(ticker, period="20d", interval="15m", auto_adjust=True, progress=False)
         
         if not df.empty and not df_m.empty:
             if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
             if isinstance(df_m.columns, pd.MultiIndex): df_m.columns = df_m.columns.get_level_values(0)
 
-            # --- CALCULS ANALYTIQUES ---
+            # --- 1. CALCULS ICHIMOKU ---
+            h9, l9 = df_m['High'].rolling(9).max(), df_m['Low'].rolling(9).min()
+            tenkan = (h9 + l9) / 2
+            h26, l26 = df_m['High'].rolling(26).max(), df_m['Low'].rolling(26).min()
+            kijun = (h26 + l26) / 2
+            
+            # Nuage (Kumo)
+            sa = ((tenkan + kijun) / 2).shift(26)
+            sb = ((df_m['High'].rolling(52).max() + df_m['Low'].rolling(52).min()) / 2).shift(26)
+            
+            # Chikou (Prix décalé de 26 en arrière pour la logique, ici on compare prix actuel vs prix -26)
+            chikou_vs_prix = px_past_26 = df_m['Close'].shift(26).iloc[-1]
+
+            # --- 2. CALCULS FIBONACCI ---
             px_actuel = df_m['Close'].iloc[-1]
             swing_high, swing_low = df['High'].tail(lookback).max(), df['Low'].tail(lookback).min()
             diff = swing_high - swing_low
@@ -42,72 +55,58 @@ if btn_analyse or btn_anticipe:
                 "1.618": swing_high + (0.618 * diff)
             }
 
-            # Tendance (MA20) & Momentum (RSI simplifié)
-            ma20 = df['Close'].rolling(20).mean().iloc[-1]
-            delta = df['Close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            perte = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rs = gain / perte
-            rsi = 100 - (100 / (1 + rs.iloc[-1]))
+            # --- 3. LOGIQUE DU PSEUDO-CODE (VÉRIFICATION DES 4 CONDITIONS) ---
+            cond1 = px_actuel > max(sa.iloc[-1], sb.iloc[-1]) # Prix > Nuage
+            cond2 = sa.iloc[-1] > sb.iloc[-1]                 # Nuage Futur (Actuel ici) Vert
+            cond3 = tenkan.iloc[-1] > kijun.iloc[-1]         # Tenkan > Kijun (Croisement)
+            cond4 = px_actuel > px_past_26                   # Chikou > Prix (Sortie)
             
-            vol_moyen = df_m['Volume'].rolling(20).mean().iloc[-1]
-            vol_confirm = df_m['Volume'].iloc[-1] > vol_moyen * 1.3
+            score_ichimoku = sum([cond1, cond2, cond3, cond4])
+            en_zone_fibo = fibo["0.786"] <= px_actuel <= fibo["0.5"]
 
-            # --- 1. AFFICHAGE PRIX LIVE ---
+            # --- 4. AFFICHAGE ET VERDICT ---
             st.divider()
             st.markdown(f"<h1 style='text-align: center; color: #1E90FF;'>{ticker} : {px_actuel:.2f} $</h1>", unsafe_allow_html=True)
             
-            # État du Marché
-            tend_label = "HAUSSIER 🟢" if px_actuel > ma20 else "BAISSIER 🔴"
-            rsi_label = "SURACHAT ⚠️" if rsi > 70 else "SURVENTE 📉" if rsi < 30 else "NEUTRE ⚖️"
-            st.markdown(f"<h3 style='text-align: center;'>Tendance : {tend_label} | Momentum : {rsi_label} (RSI: {rsi:.0f})</h3>", unsafe_allow_html=True)
-            st.divider()
-
-            # --- 2. LE VERDICT DE L'AGENT ---
-            st.subheader("🤖 Verdict de l'Agent")
+            st.subheader("🤖 Verdict Intelligence Artificielle (Ichimoku + Fibo)")
             
-            # Logique de décision
-            is_in_fibo = fibo["0.786"] <= px_actuel <= fibo["0.5"]
-            is_overextended = px_actuel >= fibo["1.618"] * 0.97
-            
-            if is_in_fibo:
-                if px_actuel > ma20 and vol_confirm:
-                    st.success("🔥 SIGNAL D'ACHAT FORT : Confluence Fibo + Tendance + Volume.")
-                elif rsi < 30:
-                    st.success("🛒 ACHAT OPPORTUNISTE : Zone de soldes + Survente extrême.")
+            if en_zone_fibo:
+                if score_ichimoku == 4:
+                    st.success(f"🔥 SIGNAL D'ACHAT FORT (4/4) : Confluence parfaite détectée.")
                 else:
-                    st.info("🟡 ATTENTE : Zone de soldes atteinte, mais manque de volume ou tendance adverse.")
-            elif is_overextended:
-                st.error("🚨 SIGNAL DE VENTE : Objectif maximum atteint. Risque de retournement élevé.")
+                    st.info(f"🟡 ZONE DE SOLDES : Fibonacci OK, mais Ichimoku incomplet ({score_ichimoku}/4 conditions).")
+            elif px_actuel >= fibo["1.618"] * 0.98:
+                st.error("🚨 VENTE : Extension Fibonacci 1.618 atteinte. Risque de retournement (Chikou à surveiller).")
             else:
-                st.write("🔭 OBSERVATION : Aucun signal majeur. Le prix cherche sa direction.")
+                st.write("🔭 PHASE D'OBSERVATION : En attente d'un retracement ou d'un signal Ichimoku.")
 
-            # --- 3. RÉCAPITULATIF FINANCIER ---
-            dist_stop = abs(px_actuel - fibo["0.786"])
+            # --- 5. CALCULATEUR FINANCIER ---
+            dist_stop = abs(px_actuel - min(sb.iloc[-1], swing_low)) # Stop sous le nuage ou swing low
             qte = int((capital * risk_pc) / dist_stop) if dist_stop > 0 else 0
             
             c1, c2, c3 = st.columns(3)
             c1.metric("Risque (10%)", f"-{(qte * dist_stop):.2f} $")
             c2.metric("Quantité", f"{qte} titres")
-            c3.metric("Objectif Max", f"{fibo['1.618']:.2f} $")
+            c3.metric("Take Profit (1:2)", f"{(px_actuel + (dist_stop * 2)):.2f} $")
 
-            # --- 4. GRAPHIQUE ---
-            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
-            fig.add_trace(go.Candlestick(x=df_m.index, open=df_m['Open'], high=df_m['High'], low=df_m['Low'], close=df_m['Close'], name='Prix'), row=1, col=1)
+            # --- 6. GRAPHIQUE ---
+            fig = make_subplots(rows=1, cols=1)
+            fig.add_trace(go.Candlestick(x=df_m.index, open=df_m['Open'], high=df_m['High'], low=df_m['Low'], close=df_m['Close'], name='Prix'))
             
-            # Zones
-            fig.add_hrect(y0=fibo["0.786"], y1=fibo["0.5"], fillcolor="rgba(0, 255, 0, 0.1)", line_width=0, annotation_text="SOLDES", annotation_position="top left", row=1, col=1)
-            fig.add_hrect(y0=fibo["1.618"]*0.98, y1=fibo["1.618"]*1.02, fillcolor="rgba(255, 0, 0, 0.1)", line_width=0, annotation_text="VENTE MAX", annotation_position="top left", row=1, col=1)
+            # Nuage Ichimoku
+            fig.add_trace(go.Scatter(x=df_m.index, y=sa, line_color='rgba(0, 255, 0, 0.1)', name='Senkou A'))
+            fig.add_trace(go.Scatter(x=df_m.index, y=sb, line_color='rgba(255, 0, 0, 0.1)', fill='tonexty', name='Senkou B'))
             
+            # Zone Fibo (à gauche)
+            fig.add_hrect(y0=fibo["0.786"], y1=fibo["0.5"], fillcolor="rgba(255, 215, 0, 0.1)", line_width=0, annotation_text="ZONE D'INTERVENTION", annotation_position="top left")
+            
+            # Lignes de prix
+            colors = {"0.5": "gray", "0.618": "#00CED1", "0.786": "#FF4D4D", "1.618": "#FF00FF"}
             for k, v in fibo.items():
-                fig.add_hline(y=v, line_color="rgba(255, 255, 255, 0.2)", annotation_text=f"{k} ({v:.2f}$)", annotation_position="bottom right", row=1, col=1)
+                fig.add_hline(y=v, line_color=colors[k], annotation_text=f"{k} ({v:.2f}$)", annotation_position="bottom right")
 
-            # Volume
-            v_colors = ['#26a69a' if v > vol_moyen else '#ef5350' for v in df_m['Volume']]
-            fig.add_trace(go.Bar(x=df_m.index, y=df_m['Volume'], marker_color=v_colors, name='Volume'), row=2, col=1)
-            
-            fig.update_layout(template="plotly_dark", height=700, xaxis_rangeslider_visible=False, showlegend=False)
+            fig.update_layout(template="plotly_dark", height=700, xaxis_rangeslider_visible=False)
             st.plotly_chart(fig, use_container_width=True)
                 
     except Exception as e:
-        st.error(f"Erreur : {e}")
+        st.error(f"Erreur technique : {e}")
