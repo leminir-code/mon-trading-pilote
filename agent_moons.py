@@ -6,8 +6,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Terminal Moons Intelligence Pro", layout="wide")
-st.title("🏦 Terminal Expert : Smart Swing & Confluence Ichimoku")
+st.set_page_config(page_title="Terminal Moons Pro : Confluence & ATR", layout="wide")
+st.title("🏦 Terminal Expert : Smart Swing, Ichimoku & Volatilité")
 
 with st.sidebar:
     st.header("⚙️ Configuration")
@@ -19,9 +19,9 @@ with st.sidebar:
     
     st.divider()
     risk_pc = st.slider("Risque par trade (%)", 0.5, 15.0, 10.0) / 100
-    lookback = st.slider("Fenêtre de recherche du Swing (jours)", 7, 90, 30)
+    lookback = st.slider("Fenêtre du Swing (jours)", 7, 90, 30)
 
-# --- FONCTION SCORE ICHIMOKU ---
+# --- FONCTIONS TECHNIQUES ---
 def get_ichimoku_score(data, mode_trade):
     if len(data) < 52: return 0, None, None, None, None
     px = data['Close'].iloc[-1]
@@ -39,9 +39,17 @@ def get_ichimoku_score(data, mode_trade):
         conds = [px < min(sa.iloc[-1], sb.iloc[-1]), sa.iloc[-1] < sb.iloc[-1], tenkan.iloc[-1] < kijun.iloc[-1], chikou_lib]
     return sum(conds), tenkan, kijun, sa, sb
 
+def calculate_atr(data, period=14):
+    high_low = data['High'] - data['Low']
+    high_close = np.abs(data['High'] - data['Close'].shift())
+    low_close = np.abs(data['Low'] - data['Close'].shift())
+    ranges = pd.concat([high_low, high_close, low_close], axis=1)
+    true_range = np.max(ranges, axis=1)
+    return true_range.rolling(period).mean()
+
 # --- BOUTONS D'ACTION ---
 col_btn1, col_btn2 = st.columns(2)
-btn_analyse = col_btn1.button("🚀 Analyser le Signal Actuel")
+btn_analyse = col_btn1.button("🚀 Analyser la Confluence")
 btn_anticipe = col_btn2.button("📈 Anticiper : Plan de Trade")
 
 if btn_analyse or btn_anticipe:
@@ -55,7 +63,7 @@ if btn_analyse or btn_anticipe:
 
             px_actuel = df_15['Close'].iloc[-1]
 
-            # --- 1. DÉTECTION DU SMART SWING (Correction de l'incohérence) ---
+            # --- 1. SMART SWING & FIBONACCI ---
             df_recent = df_d.tail(lookback)
             if mode == "ACHAT (Long)":
                 swing_point = df_recent['High'].max()
@@ -72,66 +80,67 @@ if btn_analyse or btn_anticipe:
                 f_05, f_0618, f_0786 = swing_point + (0.5 * diff), swing_point + (0.618 * diff), swing_point + (0.786 * diff)
                 f_target = swing_point - (0.618 * diff)
 
-            # --- 2. SCORES & VOLUME ---
+            # --- 2. SCORES, VOLUME & ATR ---
             score_d, _, _, _, _ = get_ichimoku_score(df_d, mode)
             score_15, tk_15, kj_15, sa_15, sb_15 = get_ichimoku_score(df_15, mode)
-            market_trend = "BULL 🟢" if score_d >= 3 else "BEAR 🔴"
             
             vol_actuel = df_15['Volume'].iloc[-1]
             vol_moyen = df_15['Volume'].rolling(20).mean().iloc[-1]
             ratio_vol = vol_actuel / vol_moyen
-
-            # --- 3. AFFICHAGE DYNAMIQUE ---
-            st.divider()
-            st.markdown(f"<h1 style='text-align: center;'>{ticker} : {px_actuel:.2f} $ ({market_trend})</h1>", unsafe_allow_html=True)
             
-            c_inf1, c_inf2, c_inf3 = st.columns(3)
-            c_inf1.metric(f"Vrai Swing ({lookback}j)", swing_date, f"{swing_point:.2f} $")
-            c_inf2.metric("Scores (Daily | 15m)", f"{score_d}/4 | {score_15}/4")
-            c_inf3.metric("Intensité Volume", f"{ratio_vol:.2f}x")
+            atr_15 = calculate_atr(df_15).iloc[-1]
+            volatility_status = "⚠️ HAUTE" if atr_15 > calculate_atr(df_15).mean() * 1.5 else "✅ STABLE"
+
+            # --- 3. AFFICHAGE ---
+            st.divider()
+            st.markdown(f"<h1 style='text-align: center;'>{ticker} : {px_actuel:.2f} $</h1>", unsafe_allow_html=True)
+            
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Swing Date", swing_date)
+            c2.metric("Scores (D|15m)", f"{score_d}/4 | {score_15}/4")
+            c3.metric("Volume", f"{ratio_vol:.2f}x")
+            c4.metric("Volatilité (ATR)", volatility_status)
             st.divider()
 
             if btn_analyse:
-                st.subheader("🚀 Diagnostic du Signal")
+                st.subheader("🚀 Diagnostic de Confluence")
                 en_zone = min(f_05, f_0786) <= px_actuel <= max(f_05, f_0786)
-                if en_zone and ratio_vol > 1.2: st.success("✅ CONFLUENCE : Prix en zone avec volume validé.")
-                elif px_actuel < f_0618 and mode == "ACHAT (Long)": st.warning("⚠️ PRIX SOUS LES SOLDES : Attendez le support 0.786.")
-                else: st.info("🔭 Observation : En attente de confluence.")
+                if en_zone and ratio_vol > 1.2 and volatility_status == "✅ STABLE":
+                    st.success("🎯 CONFLUENCE MAJEURE : Zone + Volume + Volatilité alignés.")
+                elif en_zone:
+                    st.warning("⚠️ ZONE DÉTECTÉE : Mais attendez une stabilisation du volume ou de l'ATR.")
+                else:
+                    st.info("🔭 Observation : Le prix n'est pas encore en zone optimale.")
 
             elif btn_anticipe:
-                st.subheader("📉 Plan Stratégique Bear/Bull")
-                col_strat1, col_strat2 = st.columns(2)
-                with col_strat1:
-                    if mode == "ACHAT (Long)":
-                        recommandation = f_0786 if px_actuel < f_0618 else f_0618
-                        st.write(f"### 🎯 Entrée conseillée : **{recommandation:.2f} $**")
-                        st.write(f"*(Basé sur le swing du {swing_date})*")
-                with col_strat2:
-                    st.write(f"### 💰 Objectif de Sortie : **{f_target:.2f} $**")
+                st.subheader("📉 Plan Stratégique")
+                recommandation = f_0786 if px_actuel < f_0618 else f_0618
+                col_a, col_b = st.columns(2)
+                col_a.metric("Prix d'Entrée Suggéré", f"{recommandation:.2f} $")
+                col_b.metric("Objectif Fibonacci", f"{f_target:.2f} $")
 
-            # --- 4. GRAPHIQUE (Zones à gauche, Prix à droite) ---
+            # --- 4. GRAPHIQUE ---
             df_plot = df_15.tail(lookback * 15)
             fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
             fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'], name='Prix'), row=1, col=1)
             
             # Ichimoku
-            fig.add_trace(go.Scatter(x=df_15.index, y=sa_15, line=dict(color='rgba(0, 255, 0, 0.2)'), name='Kumo A'), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df_15.index, y=sb_15, line=dict(color='rgba(255, 0, 0, 0.2)'), fill='tonexty', name='Kumo B'), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df_15.index, y=sa_15, line=dict(color='rgba(0, 255, 0, 0.1)'), name='Kumo A'), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df_15.index, y=sb_15, line=dict(color='rgba(255, 0, 0, 0.1)'), fill='tonexty', name='Kumo B'), row=1, col=1)
             fig.add_trace(go.Scatter(x=df_15.index, y=tk_15, line=dict(color='#00FFFF', width=1), name='Tenkan'), row=1, col=1)
             fig.add_trace(go.Scatter(x=df_15.index, y=kj_15, line=dict(color='#FFFF00', width=1), name='Kijun'), row=1, col=1)
 
-            # Zone Pastel à GAUCHE
+            # Fibonacci & Zones
             color_z = "rgba(0, 255, 0, 0.12)" if mode == "ACHAT (Long)" else "rgba(255, 0, 0, 0.12)"
             fig.add_hrect(y0=f_0786, y1=f_05, fillcolor=color_z, line_width=0, annotation_text="ZONE ACTION", annotation_position="top left", row=1, col=1)
             
-            # Fibonacci avec PRIX à DROITE
             levels = {"0.5": f_05, "0.618": f_0618, "0.786": f_0786, "SORTIE 1.618": f_target}
             for label, val in levels.items():
                 fig.add_hline(y=val, line_dash="dot", line_color="rgba(255,255,255,0.3)", annotation_text=f"{label}: {val:.2f}$", annotation_position="bottom right", row=1, col=1)
 
             # Volume
             v_colors = ['#26a69a' if v > vol_moyen else '#ef5350' for v in df_plot['Volume']]
-            fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['Volume'], marker_color=v_colors, name='Volume'), row=2, col=1)
+            fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['Volume'], marker_color=v_colors), row=2, col=1)
 
             fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
