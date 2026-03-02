@@ -47,7 +47,7 @@ def calculate_atr(data, period=14):
     true_range = np.max(ranges, axis=1)
     return true_range.rolling(period).mean()
 
-# --- BOUTONS D'ACTION ---
+# --- BOUTONS D'ACTION (CONSERVÉS) ---
 col_btn1, col_btn2 = st.columns(2)
 btn_analyse = col_btn1.button("🚀 Analyser la Confluence")
 btn_anticipe = col_btn2.button("📈 Anticiper : Plan de Trade")
@@ -63,10 +63,17 @@ if btn_analyse or btn_anticipe:
 
             px_actuel = df_15['Close'].iloc[-1]
 
-            # --- 1. SMART SWING & FIBONACCI ---
+            # --- 1. SMART SWING & FIBONACCI (DÉTECTION MULTI-SWING) ---
             df_recent = df_d.tail(lookback)
-            swing_point = df_recent['High'].max() if mode == "ACHAT (Long)" else df_recent['Low'].min()
-            swing_date = df_recent['High'].idxmax().strftime('%Y-%m-%d') if mode == "ACHAT (Long)" else df_recent['Low'].idxmin().strftime('%Y-%m-%d')
+            col_target = 'High' if mode == "ACHAT (Long)" else 'Low'
+            
+            # On récupère les 2 plus hauts (ou plus bas) pour le test utilisateur
+            top_swings = df_recent.sort_values(by=col_target, ascending=(mode == "VENTE (Short)")).head(2)
+            
+            # Pivot principal (le plus récent ou le plus extrême pour le tracé)
+            swing_point = top_swings[col_target].iloc[0]
+            swing_date = top_swings.index[0].strftime('%Y-%m-%d')
+            
             base_ref = df_recent['Low'].min() if mode == "ACHAT (Long)" else df_recent['High'].max()
             diff = abs(swing_point - base_ref)
             
@@ -98,22 +105,26 @@ if btn_analyse or btn_anticipe:
             c4.metric("Volatilité ATR", f"{atr_val:.2f}", delta=atr_status, delta_color="normal" if atr_status == "STABLE ✅" else "inverse")
             st.divider()
 
+            # --- AJOUT : IDENTIFICATION POUR TEST MANUEL ---
+            st.write("🔍 **Derniers Swings identifiés (pour tes tests historiques) :**")
+            for i, (idx, row) in enumerate(top_swings.iterrows()):
+                st.code(f"Swing {i+1} : Date {idx.strftime('%Y-%m-%d')} | Prix {row[col_target]:.2f}$")
+
             if btn_analyse:
                 st.subheader("🚀 Diagnostic de Confluence")
                 en_zone = min(f_05, f_0786) <= px_actuel <= max(f_05, f_0786)
                 
-                # APPLICATION DU FILTRE DE CONVICTION
                 if en_zone:
                     if ratio_vol < 0.8:
-                        st.warning("⚠️ ATTENTION : Le prix est en zone, mais l'intensité du volume est trop faible (< 0.8x). Le mouvement manque de conviction institutionnelle.")
+                        st.warning("⚠️ ATTENTION : Le prix est en zone, mais l'intensité du volume est trop faible (< 0.8x).")
                     elif atr_status == "DANGER 🔴":
-                        st.error("❌ DANGER : Volatilité (ATR) excessive. Risque de cassure brutale de la zone. Attendez le calme.")
+                        st.error("❌ DANGER : Volatilité (ATR) excessive. Risque de cassure brutale.")
                     elif ratio_vol >= 1.2:
-                        st.success("🎯 CONFLUENCE MAJEURE : Zone + Volume + ATR alignés. Signal à haute probabilité.")
+                        st.success("🎯 CONFLUENCE MAJEURE : Zone + Volume + ATR alignés.")
                     else:
-                        st.info("🔭 ZONE ATTEINTE : Les conditions sont correctes, mais un pic de volume confirmerait l'entrée.")
+                        st.info("🔭 ZONE ATTEINTE : Les conditions sont correctes, mais un pic de volume confirmerait.")
                 else:
-                    st.info("🔭 Observation : Le prix n'est pas encore en zone optimale d'intervention.")
+                    st.info("🔭 Observation : Le prix n'est pas encore en zone optimale.")
 
             elif btn_anticipe:
                 st.subheader("📉 Plan Stratégique")
@@ -125,7 +136,6 @@ if btn_analyse or btn_anticipe:
             fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
             fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'], name='Prix'), row=1, col=1)
             
-            # Ichimoku & Fibonacci
             fig.add_trace(go.Scatter(x=df_15.index, y=sa_15, line=dict(color='rgba(0, 255, 0, 0.1)'), name='Kumo A'), row=1, col=1)
             fig.add_trace(go.Scatter(x=df_15.index, y=sb_15, line=dict(color='rgba(255, 0, 0, 0.1)'), fill='tonexty', name='Kumo B'), row=1, col=1)
             
@@ -135,7 +145,6 @@ if btn_analyse or btn_anticipe:
             for label, val in {"0.618": f_0618, "0.786": f_0786, "OBJ 1.618": f_target}.items():
                 fig.add_hline(y=val, line_dash="dot", line_color="rgba(255,255,255,0.3)", annotation_text=f"{label}: {val:.2f}$", annotation_position="bottom right", row=1, col=1)
 
-            # Volume
             v_colors = ['#26a69a' if v > vol_moyen else '#ef5350' for v in df_plot['Volume']]
             fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['Volume'], marker_color=v_colors), row=2, col=1)
 
