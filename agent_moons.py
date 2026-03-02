@@ -5,9 +5,9 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# --- CONFIGURATION ---
-st.set_page_config(page_title="Terminal Moons Stratégique", layout="wide")
-st.title("🏦 Terminal Expert : Stratégies Fibonacci & Ichimoku")
+# --- CONFIGURATION INTERFACE ---
+st.set_page_config(page_title="Terminal Moons Intelligence Pro", layout="wide")
+st.title("🏦 Terminal Expert : Stratégie Multi-Horizon & Volume")
 
 with st.sidebar:
     st.header("⚙️ Configuration")
@@ -21,6 +21,7 @@ with st.sidebar:
     risk_pc = st.slider("Risque par trade (%)", 0.5, 15.0, 10.0) / 100
     lookback = st.slider("Fenêtre du Swing (jours)", 7, 90, 30)
 
+# --- FONCTION SCORE ICHIMOKU (MULTI-TIMEFRAME) ---
 def get_ichimoku_score(data, mode_trade):
     if len(data) < 52: return 0
     px = data['Close'].iloc[-1]
@@ -36,10 +37,16 @@ def get_ichimoku_score(data, mode_trade):
         conds = [px > max(sa.iloc[-1], sb.iloc[-1]), sa.iloc[-1] > sb.iloc[-1], tenkan.iloc[-1] > kijun.iloc[-1], chikou_lib]
     else:
         conds = [px < min(sa.iloc[-1], sb.iloc[-1]), sa.iloc[-1] < sb.iloc[-1], tenkan.iloc[-1] < kijun.iloc[-1], chikou_lib]
-    return sum(conds)
+    return sum(conds), tenkan, kijun, sa, sb
 
-if st.button("🚀 Lancer l'Analyse Stratégique"):
+# --- BOUTONS D'ACTION ---
+col_btn1, col_btn2 = st.columns(2)
+btn_analyse = col_btn1.button("🚀 Analyser le Signal Actuel")
+btn_anticipe = col_btn2.button("📈 Anticiper : Plan de Trade")
+
+if btn_analyse or btn_anticipe:
     try:
+        # Données Daily (Swing) et 15min (Timing)
         df_d = yf.download(ticker, period="1y", interval="1d", auto_adjust=True, progress=False)
         df_15 = yf.download(ticker, period="60d", interval="15m", auto_adjust=True, progress=False)
         
@@ -47,65 +54,89 @@ if st.button("🚀 Lancer l'Analyse Stratégique"):
             if isinstance(df_d.columns, pd.MultiIndex): df_d.columns = df_d.columns.get_level_values(0)
             if isinstance(df_15.columns, pd.MultiIndex): df_15.columns = df_15.columns.get_level_values(0)
 
-            # --- 1. DÉTECTION DU SWING & CALCUL FIBO ---
+            # --- 1. CALCULS SWING & FIBONACCI ---
             df_recent = df_d.tail(lookback)
             swing_high = df_recent['High'].max()
             swing_low = df_recent['Low'].min()
             diff = swing_high - swing_low
             px_actuel = df_15['Close'].iloc[-1]
 
-            # Définition des niveaux selon le mode
+            # Niveaux selon le mode
             if mode == "ACHAT (Long)":
-                p_entree = swing_high - (0.618 * diff)  # Entrée aux soldes
-                p_stop = swing_high - (0.786 * diff)
-                p_sortie = swing_high + (0.618 * diff) # Objectif Bull
+                f_05, f_0618, f_0786 = swing_high - (0.5 * diff), swing_high - (0.618 * diff), swing_high - (0.786 * diff)
+                f_target = swing_high + (0.618 * diff) # Extension 1.618
             else:
-                p_entree = swing_low + (0.618 * diff)   # Entrée au rebond
-                p_stop = swing_high + (0.786 * diff)
-                p_sortie = swing_low - (0.618 * diff)  # Objectif Bear
+                f_05, f_0618, f_0786 = swing_low + (0.5 * diff), swing_low + (0.618 * diff), swing_low + (0.786 * diff)
+                f_target = swing_low - (0.618 * diff)
 
-            # --- 2. DIAGNOSTIC MARCHÉ (BULL VS BEAR) ---
-            score_d = get_ichimoku_score(df_d, mode)
-            market_type = "BULL 🟢" if score_d >= 3 else "BEAR 🔴"
+            # --- 2. SCORES & VOLUME ---
+            score_d, _, _, _, _ = get_ichimoku_score(df_d, mode)
+            score_15, tk_15, kj_15, sa_15, sb_15 = get_ichimoku_score(df_15, mode)
+            market_trend = "BULL 🟢" if score_d >= 3 else "BEAR 🔴"
+            
+            vol_actuel = df_15['Volume'].iloc[-1]
+            vol_moyen = df_15['Volume'].rolling(20).mean().iloc[-1]
+            ratio_vol = vol_actuel / vol_moyen
 
+            # --- 3. AFFICHAGE DES RÉSULTATS ---
             st.divider()
-            st.markdown(f"<h1 style='text-align: center;'>{ticker} : {px_actuel:.2f} $ ({market_type})</h1>", unsafe_allow_html=True)
+            st.markdown(f"<h1 style='text-align: center;'>{ticker} : {px_actuel:.2f} $ ({market_trend})</h1>", unsafe_allow_html=True)
             
-            # --- 3. RECOMMANDATIONS STRATÉGIQUES ---
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.subheader("🎯 Recommandation d'Entrée")
-                dist_entree = ((p_entree / px_actuel) - 1) * 100
-                if market_type == "BEAR 🔴":
-                    st.info(f"Marché baissier : N'achetez pas au prix actuel. Attendez la zone de soldes Fibo à **{p_entree:.2f} $** (soit un repli de {abs(dist_entree):.2f}%).")
-                else:
-                    if px_actuel <= p_entree * 1.02:
-                        st.success(f"Opportunité Bull : Le prix est idéal pour entrer. Prix suggéré : **{p_entree:.2f} $**.")
+            c_inf1, c_inf2, c_inf3 = st.columns(3)
+            c_inf1.metric("Score DAILY", f"{score_d}/4")
+            c_inf2.metric("Score 15 MIN", f"{score_15}/4")
+            c_inf3.metric("Intensité Volume", f"{ratio_vol:.2f}x")
+            st.divider()
+
+            if btn_analyse:
+                st.subheader("🚀 Diagnostic du Signal")
+                en_zone = min(f_05, f_0786) <= px_actuel <= max(f_05, f_0786)
+                if en_zone and ratio_vol > 1.2: st.success("✅ CONFLUENCE : Prix en zone avec volume validé.")
+                else: st.info("🔭 Observation : En attente de confluence.")
+
+            elif btn_anticipe:
+                st.subheader("📉 Plan Stratégique Bear/Bull")
+                col_strat1, col_strat2 = st.columns(2)
+                
+                with col_strat1:
+                    st.write("### 🎯 Recommandation Entrée")
+                    if market_trend == "BEAR 🔴":
+                        st.error(f"Marché Bear : Attendez les soldes à **{f_0618:.2f} $** pour acheter.")
                     else:
-                        st.warning(f"Tendance Bull confirmée, mais prix trop haut. Attendez un retour à **{p_entree:.2f} $**.")
+                        st.success(f"Marché Bull : Entrée idéale à **{f_0618:.2f} $** (0.618 Fibo).")
+                
+                with col_strat2:
+                    st.write("### 💰 Objectif de Sortie")
+                    if market_trend == "BULL 🟢":
+                        st.info(f"Vendre à l'extension Fibonacci 1.618 : **{f_target:.2f} $**.")
+                    else:
+                        st.warning(f"Sortie de secours conseillée à **{f_target:.2f} $**.")
 
-            with col2:
-                st.subheader("💰 Gestion de Sortie")
-                if market_type == "BULL 🟢":
-                    st.success(f"Objectif de vente conseillé (Extension 1.618) : **{p_sortie:.2f} $**.")
-                else:
-                    st.error(f"Marché Bear : Si vous entrez à {p_entree:.2f} $, visez un rachat rapide ou un profit à **{p_sortie:.2f} $**.")
+            # --- 4. GRAPHIQUE COMPLET ---
+            df_plot = df_15.tail(lookback * 12)
+            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
+            
+            # Chandeliers & Ichimoku
+            fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'], name='Prix'), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df_15.index, y=sa_15, line=dict(color='rgba(0, 255, 0, 0.2)'), name='Kumo A'), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df_15.index, y=sb_15, line=dict(color='rgba(255, 0, 0, 0.2)'), fill='tonexty', name='Kumo B'), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df_15.index, y=tk_15, line=dict(color='#00FFFF', width=1), name='Tenkan'), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df_15.index, y=kj_15, line=dict(color='#FFFF00', width=1), name='Kijun'), row=1, col=1)
 
-            # --- 4. GRAPHIQUE ---
-            df_plot = df_15.tail(lookback * 10)
-            fig = make_subplots(rows=1, cols=1)
-            fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'], name='Prix'))
+            # Zone Pastel à Gauche
+            color_z = "rgba(0, 255, 0, 0.12)" if mode == "ACHAT (Long)" else "rgba(255, 0, 0, 0.12)"
+            fig.add_hrect(y0=f_0786, y1=f_05, fillcolor=color_z, line_width=0, annotation_text="ZONE ACTION", annotation_position="top left", row=1, col=1)
             
-            # Affichage de la zone et des lignes
-            color_z = "rgba(0, 255, 0, 0.1)" if mode == "ACHAT (Long)" else "rgba(255, 0, 0, 0.1)"
-            fig.add_hrect(y0=p_stop, y1=swing_high if mode=="ACHAT (Long)" else swing_low, fillcolor=color_z, line_width=0, annotation_text="ZONE ACTION", annotation_position="top left")
-            
-            levels = {"Entrée (0.618)": p_entree, "Stop (0.786)": p_stop, "Sortie (1.618)": p_sortie}
+            # Fibonacci avec Prix à Droite
+            levels = {"0.5": f_05, "0.618": f_0618, "0.786": f_0786, "SORTIE 1.618": f_target}
             for label, val in levels.items():
-                fig.add_hline(y=val, line_dash="dot", annotation_text=f"{label}: {val:.2f}$", annotation_position="bottom right")
+                fig.add_hline(y=val, line_dash="dot", line_color="rgba(255,255,255,0.3)", annotation_text=f"{label}: {val:.2f}$", annotation_position="bottom right", row=1, col=1)
 
-            fig.update_layout(template="plotly_dark", height=700, xaxis_rangeslider_visible=False)
+            # Volume
+            v_colors = ['#26a69a' if v > vol_moyen else '#ef5350' for v in df_plot['Volume']]
+            fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['Volume'], marker_color=v_colors, name='Volume'), row=2, col=1)
+
+            fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
                 
     except Exception as e:
