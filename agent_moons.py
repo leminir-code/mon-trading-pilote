@@ -7,7 +7,7 @@ from plotly.subplots import make_subplots
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Terminal Moons Intelligence", layout="wide")
-st.title("🏦 Terminal Expert : Ichimoku & Fibonacci (Prix Intégrés)")
+st.title("🏦 Terminal Expert : Ichimoku & Fibonacci (Affichage Optimisé)")
 
 with st.sidebar:
     st.header("⚙️ Configuration")
@@ -55,60 +55,61 @@ if btn_analyse or btn_anticipe:
 
             # Fibonacci dynamique selon le mode
             if mode == "ACHAT (Long)":
-                fibo_levels = {
-                    "0.5": swing_high - (0.5 * diff),
-                    "0.618": swing_high - (0.618 * diff),
-                    "0.786": swing_high - (0.786 * diff),
-                    "1.618": swing_high + (0.618 * diff)
-                }
+                f_05, f_0618, f_0786 = swing_high - (0.5 * diff), swing_high - (0.618 * diff), swing_high - (0.786 * diff)
+                f_target = swing_high + (0.618 * diff)
                 color_zone = "rgba(0, 255, 0, 0.12)"
             else:
-                fibo_levels = {
-                    "0.5": swing_low + (0.5 * diff),
-                    "0.618": swing_low + (0.618 * diff),
-                    "0.786": swing_low + (0.786 * diff),
-                    "1.618": swing_low - (0.618 * diff)
-                }
+                f_05, f_0618, f_0786 = swing_low + (0.5 * diff), swing_low + (0.618 * diff), swing_low + (0.786 * diff)
+                f_target = swing_low - (0.618 * diff)
                 color_zone = "rgba(255, 0, 0, 0.12)"
 
-            # --- AFFICHAGE ---
+            # --- AFFICHAGE PRIX ---
             st.divider()
             st.markdown(f"<h1 style='text-align: center; color: #1E90FF;'>{ticker} : {px_actuel:.2f} $</h1>", unsafe_allow_html=True)
             st.markdown(f"<p style='text-align: center;'>Swing : <b>{lookback} jours</b> | Volume : <b>{ratio_vol:.2f}x</b></p>", unsafe_allow_html=True)
             st.divider()
 
+            # --- LOGIQUE BOUTONS ---
             if btn_analyse:
-                st.subheader(f"🚀 Diagnostic ({mode})")
-                in_zone = min(fibo_levels["0.5"], fibo_levels["0.786"]) <= px_actuel <= max(fibo_levels["0.5"], fibo_levels["0.786"])
-                if in_zone: st.success("🎯 PRIX EN ZONE D'INTERVENTION")
+                st.subheader("🚀 Diagnostic du Signal")
+                en_zone = min(f_05, f_0786) <= px_actuel <= max(f_05, f_0786)
+                if en_zone: st.success("🎯 PRIX EN ZONE D'INTERVENTION")
                 else: st.info("🔭 Hors zone d'intervention.")
 
             elif btn_anticipe:
-                st.subheader(f"📉 Anticipation ({mode})")
-                st.metric("Cible Extension 1.618", f"{fibo_levels['1.618']:.2f} $")
+                st.subheader("📉 Plan d'Anticipation")
+                st.metric("Objectif Fibonacci 1.618", f"{f_target:.2f} $")
 
             # --- GRAPHIQUE ---
             fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
             
+            # Prix & Ichimoku
             fig.add_trace(go.Candlestick(x=df_m.index, open=df_m['Open'], high=df_m['High'], low=df_m['Low'], close=df_m['Close'], name='Prix'), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df_m.index, y=sa, line=dict(color='rgba(0, 255, 0, 0.1)'), name='Senkou A'), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df_m.index, y=sb, line=dict(color='rgba(255, 0, 0, 0.1)'), fill='tonexty', name='Kumo'), row=1, col=1)
             
-            # Ichimoku
-            fig.add_trace(go.Scatter(x=df_m.index, y=sa, line=dict(color='rgba(0, 255, 0, 0.2)'), name='SA'), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df_m.index, y=sb, line=dict(color='rgba(255, 0, 0, 0.2)'), fill='tonexty', name='Kumo'), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df_m.index, y=tenkan, line=dict(color='#00FFFF', width=1), name='Tenkan'), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df_m.index, y=kijun, line=dict(color='#FFFF00', width=1), name='Kijun'), row=1, col=1)
+            # Lignes Tenkan/Kijun (Optionnel, désactivé par défaut pour clarté)
+            # fig.add_trace(go.Scatter(x=df_m.index, y=tenkan, line=dict(color='#00FFFF', width=1), name='Tenkan'), row=1, col=1)
+            # fig.add_trace(go.Scatter(x=df_m.index, y=kijun, line=dict(color='#FFFF00', width=1), name='Kijun'), row=1, col=1)
 
-            # Zone Pastel
-            fig.add_hrect(y0=fibo_levels["0.786"], y1=fibo_levels["0.5"], fillcolor=color_zone, line_width=0, annotation_text="ZONE ACTION", row=1, col=1)
+            # ZONE D'INTERVENTION - ANNOTATION DÉPLACÉE À GAUCHE
+            fig.add_hrect(
+                y0=f_0786, y1=f_05, 
+                fillcolor=color_zone, line_width=0, 
+                annotation_text="ZONE ACTION", 
+                annotation_position="top left", # <-- CORRECTION : Déplacement à gauche
+                row=1, col=1
+            )
             
-            # LIGNES FIBONACCI AVEC PRIX INTÉGRÉS (À DROITE)
-            for label, val in fibo_levels.items():
+            # LIGNES DE PRIX À DROITE (Pour éviter les superpositions)
+            levels = {"0.5": f_05, "0.618": f_0618, "0.786": f_0786, "OBJ 1.618": f_target}
+            for label, val in levels.items():
                 fig.add_hline(
                     y=val, 
                     line_dash="dot", 
                     line_color="rgba(255,255,255,0.4)", 
-                    annotation_text=f"Fib {label} : {val:.2f}$", 
-                    annotation_position="bottom right", 
+                    annotation_text=f"{label} : {val:.2f}$", 
+                    annotation_position="bottom right", # <-- PRIX À DROITE
                     row=1, col=1
                 )
 
@@ -120,4 +121,4 @@ if btn_analyse or btn_anticipe:
             st.plotly_chart(fig, use_container_width=True)
                 
     except Exception as e:
-        st.error(f"Erreur : {e}")
+        st.error(f"Erreur technique : {e}")
