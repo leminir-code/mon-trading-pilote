@@ -7,7 +7,7 @@ from plotly.subplots import make_subplots
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Terminal Moons Intelligence", layout="wide")
-st.title("🏦 Terminal Expert : Analyse & Anticipation (Zones Actives)")
+st.title("🏦 Terminal Expert : Ichimoku, Fibonacci & Flux de Volume")
 
 with st.sidebar:
     st.header("⚙️ Configuration")
@@ -27,6 +27,7 @@ btn_anticipe = col_btn2.button("📉 Anticiper : Soldes ou Profit")
 
 if btn_analyse or btn_anticipe:
     try:
+        # Données
         df = yf.download(ticker, period=f"{lookback+60}d", interval="1d", auto_adjust=True, progress=False)
         df_m = yf.download(ticker, period="20d", interval="15m", auto_adjust=True, progress=False)
         
@@ -46,52 +47,67 @@ if btn_analyse or btn_anticipe:
             kijun = (h26 + l26) / 2
             sa = ((tenkan + kijun) / 2).shift(26)
             sb = ((df_m['High'].rolling(52).max() + df_m['Low'].rolling(52).min()) / 2).shift(26)
-            chikou_vs_prix = df_m['Close'].shift(26).iloc[-1]
+
+            # VOLUME ANALYSIS (Nouveau)
+            vol_actuel = df_m['Volume'].iloc[-1]
+            vol_moyen = df_m['Volume'].rolling(20).mean().iloc[-1]
+            ratio_vol = vol_actuel / vol_moyen
+            vol_status = "🔥 FORT" if ratio_vol > 1.5 else "⚖️ NORMAL" if ratio_vol > 0.8 else "💤 FAIBLE"
 
             # Fibonacci & Zones
             if mode == "ACHAT (Long)":
-                f_05, f_0618, f_0786 = swing_high - (0.5 * diff), swing_high - (0.618 * diff), swing_high - (0.786 * diff)
+                f_05, f_0786 = swing_high - (0.5 * diff), swing_high - (0.786 * diff)
                 f_target = swing_high + (0.618 * diff)
-                color_zone = "rgba(0, 255, 0, 0.12)" # Vert pour achat
+                color_zone = "rgba(0, 255, 0, 0.12)"
             else:
-                f_05, f_0618, f_0786 = swing_low + (0.5 * diff), swing_low + (0.618 * diff), swing_low + (0.786 * diff)
+                f_05, f_0786 = swing_low + (0.5 * diff), swing_low + (0.786 * diff)
                 f_target = swing_low - (0.618 * diff)
-                color_zone = "rgba(255, 0, 0, 0.12)" # Rouge pour vente
+                color_zone = "rgba(255, 0, 0, 0.12)"
 
-            # --- AFFICHAGE PRIX ---
+            # --- AFFICHAGE PRIX & VOLUME ---
             st.divider()
             st.markdown(f"<h1 style='text-align: center; color: #1E90FF;'>{ticker} : {px_actuel:.2f} $</h1>", unsafe_allow_html=True)
+            
+            # Ligne d'info Volume
+            col_v1, col_v2, col_v3 = st.columns(3)
+            col_v1.markdown(f"<p style='text-align: center;'>Période : <b>{lookback} jours</b></p>", unsafe_allow_html=True)
+            col_v2.markdown(f"<p style='text-align: center;'>Volume : <b>{vol_status}</b></p>", unsafe_allow_html=True)
+            col_v3.markdown(f"<p style='text-align: center;'>Intensité : <b>{ratio_vol:.2f}x</b></p>", unsafe_allow_html=True)
             st.divider()
 
             # --- LOGIQUE BOUTONS ---
             if btn_analyse:
-                st.subheader("🚀 Diagnostic du Signal")
+                st.subheader(f"🚀 Diagnostic du Signal ({mode})")
                 en_zone = min(f_05, f_0786) <= px_actuel <= max(f_05, f_0786)
-                if en_zone: st.success("🎯 PRIX EN ZONE D'INTERVENTION")
-                else: st.info("🔭 Hors zone d'intervention")
+                if en_zone and ratio_vol > 1.2:
+                    st.success("✅ CONFLUENCE : Prix en zone avec Volume confirmateur.")
+                elif en_zone:
+                    st.warning("⚠️ ATTENTION : Prix en zone mais Volume insuffisant.")
+                else:
+                    st.info("🔭 Hors zone d'intervention.")
 
             elif btn_anticipe:
-                st.subheader("📉 Plan d'Anticipation")
-                st.metric("Objectif Max", f"{f_target:.2f} $")
+                st.subheader(f"📉 Plan d'Anticipation ({mode})")
+                st.metric("Objectif Fibonacci 1.618", f"{f_target:.2f} $")
 
-            # --- GRAPHIQUE AVEC ZONE ---
+            # --- GRAPHIQUE ---
             fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
+            
+            # Prix & Ichimoku
             fig.add_trace(go.Candlestick(x=df_m.index, open=df_m['Open'], high=df_m['High'], low=df_m['Low'], close=df_m['Close'], name='Prix'), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df_m.index, y=sa, line=dict(color='rgba(0, 255, 0, 0.2)'), name='Senkou A'), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df_m.index, y=sb, line=dict(color='rgba(255, 0, 0, 0.2)'), fill='tonexty', name='Kumo'), row=1, col=1)
             
-            # RÉINTÉGRATION DE LA ZONE (À gauche)
-            fig.add_hrect(
-                y0=f_0786, y1=f_05, 
-                fillcolor=color_zone, line_width=0, 
-                annotation_text="ZONE D'INTERVENTION", annotation_position="top left", 
-                row=1, col=1
-            )
-            
-            # Lignes Fibonacci (À droite)
-            levels = {"0.5": f_05, "0.618": f_0618, "0.786": f_0786, "1.618": f_target}
-            for label, val in levels.items():
-                fig.add_hline(y=val, line_color="rgba(255,255,255,0.2)", annotation_text=f"{label} ({val:.2f}$)", annotation_position="bottom right", row=1, col=1)
+            # Zone & Fibonacci
+            fig.add_hrect(y0=f_0786, y1=f_05, fillcolor=color_zone, line_width=0, annotation_text="ZONE ACTION", row=1, col=1)
+            fig.add_hline(y=f_target, line_dash="dash", line_color="magenta", annotation_text="OBJ 1.618", row=1, col=1)
 
-            fig.update_layout(template="plotly_dark", height=700, xaxis_rangeslider_visible=False, showlegend=False)
+            # Volume (Visualisation augmentée)
+            v_colors = ['#26a69a' if v > vol_moyen else '#ef5350' for v in df_m['Volume']]
+            fig.add_trace(go.Bar(x=df_m.index, y=df_m['Volume'], marker_color=v_colors, name='Volume Real-time'), row=2, col=1)
+            fig.add_trace(go.Scatter(x=df_m.index, y=df_m['Volume'].rolling(20).mean(), line=dict(color='white', width=1), name='Moyenne Vol.'), row=2, col=1)
+
+            fig.update_layout(template="plotly_dark", height=800, xaxis_rangeslider_visible=False)
             st.plotly_chart(fig, use_container_width=True)
                 
     except Exception as e:
