@@ -6,8 +6,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Terminal Moons Pro : Confluence & ATR", layout="wide")
-st.title("🏦 Terminal Expert : Smart Swing, Ichimoku & Volatilité")
+st.set_page_config(page_title="Terminal Moons Intelligence Pro", layout="wide")
+st.title("🏦 Terminal Expert : Smart Swing & Sécurité Logique")
 
 with st.sidebar:
     st.header("⚙️ Configuration")
@@ -63,21 +63,39 @@ if btn_analyse or btn_anticipe:
 
             px_actuel = df_15['Close'].iloc[-1]
 
-            # --- 1. SMART SWING & FIBONACCI ---
+            # --- 1. SMART SWING & FIBONACCI (LOGIQUE SÉCURISÉE) ---
             df_recent = df_d.tail(lookback)
             if mode == "ACHAT (Long)":
                 swing_point = df_recent['High'].max()
                 swing_date = df_recent['High'].idxmax().strftime('%Y-%m-%d')
                 base_low = df_recent['Low'].min()
                 diff = swing_point - base_low
+                
+                # Calcul des niveaux théoriques
                 f_05, f_0618, f_0786 = swing_point - (0.5 * diff), swing_point - (0.618 * diff), swing_point - (0.786 * diff)
-                f_target = swing_point + (0.618 * diff)
-            else:
+                
+                # SÉCURITÉ : Si le prix actuel est DÉJÀ sous le niveau calculé
+                p_entree_suggere = f_0618
+                if px_actuel < f_0618:
+                    p_entree_suggere = f_0786 # On vise le support suivant
+                if px_actuel < f_0786:
+                    p_entree_suggere = px_actuel * 0.98 # On suggère 2% sous le prix actuel (nouveaux plus bas)
+                
+                f_target = swing_point + (0.618 * diff) if px_actuel < swing_point else px_actuel * 1.15
+
+            else: # MODE VENTE
                 swing_point = df_recent['Low'].min()
                 swing_date = df_recent['Low'].idxmin().strftime('%Y-%m-%d')
                 base_high = df_recent['High'].max()
                 diff = base_high - swing_point
                 f_05, f_0618, f_0786 = swing_point + (0.5 * diff), swing_point + (0.618 * diff), swing_point + (0.786 * diff)
+                
+                p_entree_suggere = f_0618
+                if px_actuel > f_0618:
+                    p_entree_suggere = f_0786
+                if px_actuel > f_0786:
+                    p_entree_suggere = px_actuel * 1.02
+                    
                 f_target = swing_point - (0.618 * diff)
 
             # --- 2. SCORES, VOLUME & ATR ---
@@ -88,15 +106,16 @@ if btn_analyse or btn_anticipe:
             vol_moyen = df_15['Volume'].rolling(20).mean().iloc[-1]
             ratio_vol = vol_actuel / vol_moyen
             
-            atr_15 = calculate_atr(df_15).iloc[-1]
-            volatility_status = "⚠️ HAUTE" if atr_15 > calculate_atr(df_15).mean() * 1.5 else "✅ STABLE"
+            atr_df = calculate_atr(df_15)
+            atr_actuel = atr_df.iloc[-1]
+            volatility_status = "⚠️ HAUTE" if atr_actuel > atr_df.mean() * 1.5 else "✅ STABLE"
 
             # --- 3. AFFICHAGE ---
             st.divider()
             st.markdown(f"<h1 style='text-align: center;'>{ticker} : {px_actuel:.2f} $</h1>", unsafe_allow_html=True)
             
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Swing Date", swing_date)
+            c1.metric("Date du Pivot", swing_date, f"{swing_point:.2f} $")
             c2.metric("Scores (D|15m)", f"{score_d}/4 | {score_15}/4")
             c3.metric("Volume", f"{ratio_vol:.2f}x")
             c4.metric("Volatilité (ATR)", volatility_status)
@@ -106,18 +125,17 @@ if btn_analyse or btn_anticipe:
                 st.subheader("🚀 Diagnostic de Confluence")
                 en_zone = min(f_05, f_0786) <= px_actuel <= max(f_05, f_0786)
                 if en_zone and ratio_vol > 1.2 and volatility_status == "✅ STABLE":
-                    st.success("🎯 CONFLUENCE MAJEURE : Zone + Volume + Volatilité alignés.")
-                elif en_zone:
-                    st.warning("⚠️ ZONE DÉTECTÉE : Mais attendez une stabilisation du volume ou de l'ATR.")
+                    st.success("🎯 CONFLUENCE : Tous les signaux sont alignés pour une entrée.")
                 else:
-                    st.info("🔭 Observation : Le prix n'est pas encore en zone optimale.")
+                    st.info("🔭 Observation : Le marché ne présente pas de confluence parfaite pour l'instant.")
 
             elif btn_anticipe:
-                st.subheader("📉 Plan Stratégique")
-                recommandation = f_0786 if px_actuel < f_0618 else f_0618
+                st.subheader("📉 Plan Stratégique (Corrigé)")
                 col_a, col_b = st.columns(2)
-                col_a.metric("Prix d'Entrée Suggéré", f"{recommandation:.2f} $")
+                col_a.metric("Prix d'Entrée Suggéré", f"{p_entree_suggere:.2f} $")
                 col_b.metric("Objectif Fibonacci", f"{f_target:.2f} $")
+                if p_entree_suggere > px_actuel and mode == "ACHAT (Long)":
+                    st.error("⚠️ Attention : La structure de marché a changé. Le sommet détecté est trop ancien pour ce prix.")
 
             # --- 4. GRAPHIQUE ---
             df_plot = df_15.tail(lookback * 15)
@@ -130,11 +148,11 @@ if btn_analyse or btn_anticipe:
             fig.add_trace(go.Scatter(x=df_15.index, y=tk_15, line=dict(color='#00FFFF', width=1), name='Tenkan'), row=1, col=1)
             fig.add_trace(go.Scatter(x=df_15.index, y=kj_15, line=dict(color='#FFFF00', width=1), name='Kijun'), row=1, col=1)
 
-            # Fibonacci & Zones
+            # Fibonacci & Zones (À gauche / À droite)
             color_z = "rgba(0, 255, 0, 0.12)" if mode == "ACHAT (Long)" else "rgba(255, 0, 0, 0.12)"
             fig.add_hrect(y0=f_0786, y1=f_05, fillcolor=color_z, line_width=0, annotation_text="ZONE ACTION", annotation_position="top left", row=1, col=1)
             
-            levels = {"0.5": f_05, "0.618": f_0618, "0.786": f_0786, "SORTIE 1.618": f_target}
+            levels = {"0.5": f_05, "0.618": f_0618, "0.786": f_0786, "OBJ 1.618": f_target}
             for label, val in levels.items():
                 fig.add_hline(y=val, line_dash="dot", line_color="rgba(255,255,255,0.3)", annotation_text=f"{label}: {val:.2f}$", annotation_position="bottom right", row=1, col=1)
 
