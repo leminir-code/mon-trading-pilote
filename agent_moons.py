@@ -6,8 +6,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Terminal Moons Pro : Profit & Stratégie", layout="wide")
-st.title("🏦 Terminal Expert : Analyse de Confluence & Profit")
+st.set_page_config(page_title="Terminal Moons Pro : Intelligence Flux", layout="wide")
+st.title("🏦 Terminal Expert : Smart Swing & Filtre de Conviction")
 
 with st.sidebar:
     st.header("⚙️ Configuration")
@@ -94,46 +94,45 @@ if btn_analyse or btn_anticipe:
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Date du Pivot", swing_date, f"{swing_point:.2f} $")
             c2.metric("Scores (D|15m)", f"{score_d}/4 | {score_15}/4")
-            c3.metric("Intensité Volume", f"{ratio_vol:.2f}x")
-            c4.metric("Volatilité ATR", f"{atr_val:.2f}", delta=atr_status)
+            c3.metric("Intensité Volume", f"{ratio_vol:.2f}x", delta="Conviction" if ratio_vol >= 0.8 else "Faible", delta_color="normal" if ratio_vol >= 0.8 else "inverse")
+            c4.metric("Volatilité ATR", f"{atr_val:.2f}", delta=atr_status, delta_color="normal" if atr_status == "STABLE ✅" else "inverse")
             st.divider()
 
             if btn_analyse:
                 st.subheader("🚀 Diagnostic de Confluence")
                 en_zone = min(f_05, f_0786) <= px_actuel <= max(f_05, f_0786)
-                if en_zone and ratio_vol >= 0.8:
-                    st.success("🎯 SIGNAL VALIDÉ : Prix en zone avec volume de conviction.")
-                elif en_zone:
-                    st.warning("⚠️ ATTENTION : Prix en zone mais intensité trop faible.")
+                
+                # APPLICATION DU FILTRE DE CONVICTION
+                if en_zone:
+                    if ratio_vol < 0.8:
+                        st.warning("⚠️ ATTENTION : Le prix est en zone, mais l'intensité du volume est trop faible (< 0.8x). Le mouvement manque de conviction institutionnelle.")
+                    elif atr_status == "DANGER 🔴":
+                        st.error("❌ DANGER : Volatilité (ATR) excessive. Risque de cassure brutale de la zone. Attendez le calme.")
+                    elif ratio_vol >= 1.2:
+                        st.success("🎯 CONFLUENCE MAJEURE : Zone + Volume + ATR alignés. Signal à haute probabilité.")
+                    else:
+                        st.info("🔭 ZONE ATTEINTE : Les conditions sont correctes, mais un pic de volume confirmerait l'entrée.")
                 else:
-                    st.info("🔭 Observation : En attente d'une entrée en zone.")
+                    st.info("🔭 Observation : Le prix n'est pas encore en zone optimale d'intervention.")
 
             elif btn_anticipe:
-                st.subheader("📉 Plan Stratégique & Profit Potentiel")
+                st.subheader("📉 Plan Stratégique")
                 recommandation = f_0786 if (mode == "ACHAT (Long)" and px_actuel < f_0618) else f_0618
-                
-                # CALCUL DU PROFIT %
-                gain_absolu = abs(f_target - recommandation)
-                gain_pourcent = (gain_absolu / recommandation) * 100
-                
-                col_a, col_b, col_c = st.columns(3)
-                col_a.metric("Entrée Suggérée", f"{recommandation:.2f} $")
-                col_b.metric("Objectif 1.618", f"{f_target:.2f} $")
-                col_c.metric("Profit Visé (%)", f"{gain_pourcent:.1f} %", delta="Gain Potentiel", delta_color="normal")
+                st.write(f"### Prix d'entrée suggéré : **{recommandation:.2f} $** | Objectif : **{f_target:.2f} $**")
 
             # --- 4. GRAPHIQUE ---
             df_plot = df_15.tail(lookback * 15)
             fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
             fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'], name='Prix'), row=1, col=1)
             
-            # Ichimoku & Zones
+            # Ichimoku & Fibonacci
             fig.add_trace(go.Scatter(x=df_15.index, y=sa_15, line=dict(color='rgba(0, 255, 0, 0.1)'), name='Kumo A'), row=1, col=1)
             fig.add_trace(go.Scatter(x=df_15.index, y=sb_15, line=dict(color='rgba(255, 0, 0, 0.1)'), fill='tonexty', name='Kumo B'), row=1, col=1)
             
             color_z = "rgba(0, 255, 0, 0.12)" if mode == "ACHAT (Long)" else "rgba(255, 0, 0, 0.12)"
             fig.add_hrect(y0=f_0786, y1=f_05, fillcolor=color_z, line_width=0, annotation_text="ZONE ACTION", annotation_position="top left", row=1, col=1)
             
-            for label, val in {"0.618": f_0618, "0.786": f_0786, "SORTIE 1.618": f_target}.items():
+            for label, val in {"0.618": f_0618, "0.786": f_0786, "OBJ 1.618": f_target}.items():
                 fig.add_hline(y=val, line_dash="dot", line_color="rgba(255,255,255,0.3)", annotation_text=f"{label}: {val:.2f}$", annotation_position="bottom right", row=1, col=1)
 
             # Volume
