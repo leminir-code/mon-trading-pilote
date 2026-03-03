@@ -10,16 +10,6 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="Terminal Moons Pro : Intelligence Flux", layout="wide")
 st.title("🏦 Terminal Expert : Gestion Multi-Cibles & Sécurité")
 
-# --- DOCUMENTATION & ALGORITHME (COMPLET) ---
-with st.expander("📖 DOCUMENTATION & ALGORITHME DE L'AGENT"):
-    st.markdown("""
-    ### 🛡️ Algorithme de Détection Dynamique
-    1. **Synchronisation Temporelle** : Correction des fuseaux horaires (UTC) pour éviter les erreurs de comparaison.
-    2. **Scan ATR** : Calcul de la volatilité pour définir l'écart minimum (C4).
-    3. **Détection Temporelle** : Identification des pivots majeurs sur 1 an.
-    4. **Projection Graphique** : Marquage visuel des dates de pivot sur le flux 15 min.
-    """)
-
 with st.sidebar:
     st.header("⚙️ Configuration")
     ticker = st.text_input("🔍 Symbole", value="NVDA").upper()
@@ -49,7 +39,6 @@ def find_dynamic_swings(data, mode_trade, atr_val):
     swings = []
     df_temp = data.copy().sort_values(by=col, ascending=(mode_trade == "VENTE (Short)"))
     for idx, row in df_temp.iterrows():
-        # Correction TZ : On s'assure que les dates sont TZ-naive pour la comparaison
         if all(abs((idx.replace(tzinfo=None) - pd.to_datetime(s['Date']).replace(tzinfo=None)).days) >= dynamic_dist for s in swings):
             swings.append({'Date': idx.strftime('%Y-%m-%d %H:%M:%S'), 'Prix': round(row[col], 2)})
         if len(swings) >= 2: break
@@ -102,21 +91,20 @@ try:
         if col_btn2.button("📈 Anticiper : Plan de Trade"):
             st.info(f"Entrée: {f_entree:.2f}$ | Qty: {qty} | TP1: {tp1_secure:.2f}$ | TP2: {tp2_final:.2f}$ | TP3: {tp3_max:.2f}$ | Stop: {f_stop:.2f}$")
         
-        # FICHE DE COURTAGE COMPLÈTE
         if col_btn3.button("📋 Voir la Fiche"):
             fiche_df = pd.DataFrame({
-                "Paramètre Courtage": ["Quantité (Qty)", "Prix d'Entrée (C2)", "Objectif Sécurisé (TP1)", "Objectif Principal (TP2)", "Objectif Profit Max (TP3)", "Stop Loss"],
+                "Paramètre Courtage": ["Quantité (Qty)", "Entrée (C2)", "TP1 (50%)", "TP2 Principal", "TP3 Max", "Stop Loss"],
                 "Valeur": [qty, f"{f_entree:.2f} $", f"{tp1_secure:.2f} $", f"{tp2_final:.2f} $", f"{tp3_max:.2f} $", f"{f_stop:.2f} $"]
             })
             st.table(fiche_df)
 
-        # --- GRAPHIQUE AMÉLIORÉ ---
+        # --- GRAPHIQUE ---
         df_plot = df_15.tail(600)
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
         fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'], name='Prix'), row=1, col=1)
         
+        # Dates de Swing sur Graphique
         for idx, row in swings_df.iterrows():
-            # Harmonisation TZ pour le tracé
             swing_dt = pd.to_datetime(row['Date']).replace(tzinfo=df_plot.index.tzinfo)
             if swing_dt >= df_plot.index.min():
                 fig.add_vline(x=swing_dt, line_dash="dash", line_color="white", row=1, col=1)
