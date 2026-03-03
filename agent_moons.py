@@ -22,7 +22,7 @@ with st.sidebar:
     risk_pc = st.slider("Risque par trade (%)", 0.5, 15.0, 10.0) / 100
     lookback_max = st.slider("Fenêtre Max du Swing (jours)", 15, 120, 60)
 
-# --- FONCTIONS TECHNIQUES (ICHIMOKU, ATR, SWINGS) ---
+# --- FONCTIONS TECHNIQUES ---
 def get_ichimoku_score(data, mode_trade):
     if len(data) < 52: return 0, None, None, None, None
     px = data['Close'].iloc[-1]
@@ -59,7 +59,7 @@ def find_dynamic_swings(data, mode_trade, atr_val):
         if len(swings) >= 2: break
     return pd.DataFrame(swings), dynamic_dist
 
-# --- BOUTONS D'ACTION (3ÈME BOUTON AJOUTÉ) ---
+# --- BOUTONS D'ACTION ---
 col_btn1, col_btn2, col_btn3 = st.columns(3)
 btn_analyse = col_btn1.button("🚀 Analyser la Confluence")
 btn_anticipe = col_btn2.button("📈 Anticiper : Plan de Trade")
@@ -83,18 +83,17 @@ if btn_analyse or btn_anticipe or btn_save:
             base_ref = df_recent['Low'].min() if mode == "ACHAT (Long)" else df_recent['High'].max()
             diff = abs(swing_point - base_ref)
             
-            # Niveaux Fibonacci
             f_entree = swing_point - (0.618 * diff) if mode == "ACHAT (Long)" else swing_point + (0.618 * diff)
             f_soldes = swing_point - (0.786 * diff) if mode == "ACHAT (Long)" else swing_point + (0.786 * diff)
             f_stop = swing_point - (0.95 * diff) if mode == "ACHAT (Long)" else swing_point + (0.95 * diff)
             f_target = swing_point + (0.618 * diff) if mode == "ACHAT (Long)" else swing_point - (0.618 * diff)
 
-            score_trend, _, _ = get_ichimoku_score(df_d, mode)
+            score_trend, sa_d, sb_d = get_ichimoku_score(df_d, mode)
             trend_label = "HAUSSIER 📈" if score_trend >= 3 else "BAISSIER 📉" if score_trend <= 1 else "NEUTRE ⚖️"
-            trend_color = "#00FF00" if "HAUSSIER" in trend_label else "#FF0000" if "BAISSIER" in trend_label else "#FFA500"
+            trend_color = "#00FF00" if trend_label == "HAUSSIER 📈" else "#FF0000" if trend_label == "BAISSIER 📉" else "#FFA500"
             vol_moyen = df_15['Volume'].rolling(20).mean().iloc[-1]
 
-            # --- AFFICHAGE MÉTRIQUES (4 EN LIGNE) ---
+            # --- AFFICHAGE MÉTRIQUES ---
             st.divider()
             st.markdown(f"<h1 style='text-align: center;'>{ticker} : {px_actuel:.2f} $</h1>", unsafe_allow_html=True)
             st.markdown(f"<h3 style='text-align: center; color: {trend_color};'>Marché {trend_label}</h3>", unsafe_allow_html=True)
@@ -106,35 +105,22 @@ if btn_analyse or btn_anticipe or btn_save:
             c4.metric("Filtre Dynamique", f"{dist_calculee} jrs")
             st.divider()
 
+            # --- TICKET D'ORDRE COURTAGE (REMIS EN FORME DE BLOCS) ---
+            st.subheader(f"📋 Ticket d'Ordre Courtage (Investissement : {capital} $)")
+            qty = int((capital * risk_pc) / abs(f_entree - f_stop)) if abs(f_entree - f_stop) > 0 else 0
+            
+            col_t1, col_t2 = st.columns(2)
+            with col_t1:
+                st.info(f"**ORDRE ACHAT**\n- **Quantité :** {qty} titres\n- **Prix Limit :** {f_entree:.2f} $\n- **Zone Soldes :** {f_soldes:.2f} $")
+            with col_t2:
+                st.success(f"**ORDRE VENTE**\n- **Objectif (Profit) :** {f_target:.2f} $\n- **Stop Loss :** {f_stop:.2f} $")
+
             # --- LOGIQUE DE SAUVEGARDE ---
             if btn_save:
-                st.subheader("📝 Récapitulatif à Sauvegarder")
-                qty = int((capital * risk_pc) / abs(f_entree - f_stop)) if abs(f_entree - f_stop) > 0 else 0
-                report = f"""
-                FICHE DE TRADE - {ticker} ({datetime.now().strftime('%Y-%m-%d %H:%M')})
-                ------------------------------------------------------------
-                DIRECTION : {mode} | MARCHÉ : {trend_label}
-                CAPITAL : {capital}$ | RISQUE : {risk_pc*100}%
-                
-                ORDRE D'ENTRÉE : {f_entree:.2f} $ (LIMIT)
-                QUANTITÉ : {qty} titres
-                STOP LOSS : {f_stop:.2f} $
-                OBJECTIF VENTE : {f_target:.2f} $
-                ------------------------------------------------------------
-                """
-                st.code(report)
-                st.download_button("📥 Télécharger le Ticket (.txt)", report, file_name=f"Trade_{ticker}_{datetime.now().strftime('%Y%m%d')}.txt")
+                report = f"FICHE DE TRADE - {ticker} ({datetime.now().strftime('%Y-%m-%d %H:%M')})\nDIRECTION : {mode} | MARCHÉ : {trend_label}\nORDRE D'ENTRÉE : {f_entree:.2f} $\nQUANTITÉ : {qty} titres\nSTOP LOSS : {f_stop:.2f} $\nOBJECTIF VENTE : {f_target:.2f} $"
+                st.download_button("📥 Télécharger le Ticket (.txt)", report, file_name=f"Trade_{ticker}.txt")
 
-            if btn_anticipe:
-                st.subheader("📋 Ticket d'Ordre Courtage")
-                qty = int((capital * risk_pc) / abs(f_entree - f_stop)) if abs(f_entree - f_stop) > 0 else 0
-                col_t1, col_t2 = st.columns(2)
-                with col_t1:
-                    st.info(f"**ACHAT LIMIT :** {qty} titres à {f_entree:.2f} $")
-                with col_t2:
-                    st.success(f"**VENTE CIBLE :** {f_target:.2f} $ | **STOP :** {f_stop:.2f} $")
-
-            # --- 4. GRAPHIQUE COMPLET (LABELS GAUCHE) ---
+            # --- GRAPHIQUE COMPLET (LABELS GAUCHE) ---
             df_plot = df_15.tail(600)
             fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
             fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'], name='Prix'), row=1, col=1)
@@ -150,7 +136,7 @@ if btn_analyse or btn_anticipe or btn_save:
                 fig.add_hline(y=val, line_dash="dot", line_color=colors[lbl], annotation_text=f"{lbl}: {val:.2f}$", annotation_position="top left", row=1, col=1)
 
             # Volume
-            v_colors = ['#26a69a' if v > vol_moyen else '#ef5350' for v in df_plot['Volume']]
+            v_colors = ['#26a69a' if c >= o else '#ef5350' for o, c in zip(df_plot['Open'], df_plot['Close'])]
             fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['Volume'], marker_color=v_colors), row=2, col=1)
 
             fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, showlegend=False)
