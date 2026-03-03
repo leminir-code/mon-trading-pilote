@@ -10,11 +10,23 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="Terminal Moons Pro : Intelligence Flux", layout="wide")
 st.title("🏦 Terminal Expert : Gestion Multi-Cibles & Sécurité")
 
-# --- DOCUMENTATION ---
+# --- AMÉLIORATION : AIDE AVEC ALGORITHME DÉTAILLÉ ---
 with st.expander("📖 DOCUMENTATION & ALGORITHME DE L'AGENT"):
     st.markdown("""
-    ### 1. Logique de l'Algorithme
-    * **C1** : T1 Valeur Pivot | **C2** : Prix d'entrée | **C3** : Prix de vente TP2 | **C4** : Filtre Dynamique.
+    ### 🛡️ Algorithme du Programme
+    1. **Scan de Volatilité (ATR)** : L'agent calcule l'ATR moyen sur 14 jours pour définir le "bruit" du marché.
+    2. **Filtrage Dynamique (C4)** : L'écart minimal entre les pivots est calculé par la formule : `int((ATR / Prix) * 500)`. Cela rend les dates de swing intelligentes.
+    3. **Identification du Pivot (T1/C1)** : Recherche du sommet ou creux extrême dans la fenêtre de jours (Lookback) définie.
+    4. **Retracement Fibonacci (C2)** : Application du ratio d'or de **0.618** sur l'amplitude du mouvement pour définir l'entrée.
+    5. **Score Ichimoku** : Analyse de 4 points (Prix vs Nuage, Tenkan/Kijun, SSA/SSB, Chikou) pour valider la force du flux.
+    6. **Plafonnement de Sécurité (C3)** : Si le mode choisi est inverse à la tendance Ichimoku, l'objectif est automatiquement ramené à la lisière du Nuage (Kumo).
+    7. **Calcul de Position** : La quantité est définie par : `(Capital * % Risque) / (Entrée - Stop)`.
+
+    ### 📊 Nomenclature des Affichages
+    * **C1** : Date et prix du Pivot T1.
+    * **C2** : Prix d'Entrée (Achat/Vente).
+    * **C3** : Prix de Vente final (TP2).
+    * **C4** : Valeur du filtre de distance dynamique.
     """)
 
 with st.sidebar:
@@ -25,7 +37,7 @@ with st.sidebar:
     risk_pc = st.slider("Risque par trade (%)", 0.5, 15.0, 5.0) / 100
     lookback_max = st.slider("Fenêtre Max du Swing (jours)", 15, 120, 91)
 
-# --- FONCTIONS TECHNIQUES ---
+# --- FONCTIONS TECHNIQUES (PRÉSERVÉES) ---
 def get_ichimoku_score(data, mode_trade):
     if len(data) < 52: return 0, None, None, None, None
     px = data['Close'].iloc[-1]
@@ -73,7 +85,6 @@ try:
         swings_df, dist_calculee = find_dynamic_swings(df_recent, mode, atr_d)
         
         t1_pivot = swings_df.iloc[0]['Prix'] 
-        
         base_ref = df_recent['Low'].min() if mode == "ACHAT (Long)" else df_recent['High'].max()
         diff = abs(t1_pivot - base_ref)
         
@@ -88,13 +99,8 @@ try:
         kumo_limit = min(sa_d.iloc[-1], sb_d.iloc[-1]) if mode == "ACHAT (Long)" else max(sa_d.iloc[-1], sb_d.iloc[-1])
         is_contre_tendance = (mode == "ACHAT (Long)" and trend_label == "BAISSIER 📉") or (mode == "VENTE (Short)" and trend_label == "HAUSSIER 📈")
         
-        # AJUSTEMENT C3 (Avec vérification de cohérence)
         tp2_theo = (t1_pivot + (0.618 * diff) if mode == "ACHAT (Long)" else t1_pivot - (0.618 * diff))
-        if is_contre_tendance:
-            # On plafonne au Kumo, mais on vérifie que cela reste profitable
-            tp2_final = kumo_limit if (mode == "ACHAT (Long)" and kumo_limit > f_entree) or (mode == "VENTE (Short)" and kumo_limit < f_entree) else tp2_theo
-        else:
-            tp2_final = tp2_theo
+        tp2_final = kumo_limit if is_contre_tendance and ((mode == "ACHAT (Long)" and kumo_limit > f_entree) or (mode == "VENTE (Short)" and kumo_limit < f_entree)) else tp2_theo
 
         tp1_secure = (f_entree + tp2_final) / 2
         tp3_grand_profit = t1_pivot + (1.618 * diff) if mode == "ACHAT (Long)" else t1_pivot - (1.618 * diff)
@@ -115,26 +121,33 @@ try:
         col_btn1, col_btn2, col_btn3 = st.columns(3)
         if col_btn1.button("🚀 Analyser la Confluence"):
             st.table(swings_df)
+            st.success(f"Score Ichimoku {score_trend}/4")
+        
         if col_btn2.button("📈 Anticiper : Plan de Trade"):
-            # Alerte si C3 reste incohérent malgré l'ajustement
-            if (mode == "ACHAT (Long)" and tp2_final <= f_entree) or (mode == "VENTE (Short)" and tp2_final >= f_entree):
-                st.error("❌ INCOHÉRENCE : L'objectif de profit (C3) est bloqué par le nuage Ichimoku. Trade impossible.")
-            else:
-                st.info(f"Entrée: {f_entree:.2f}$ | Qty: {qty} | TP1: {tp1_secure:.2f}$ | TP2: {tp2_final:.2f}$")
-        if col_btn3.button("📋 Voir la Fiche du Trade"):
-            st.table(pd.DataFrame({"Paramètre": ["Quantité", "Entrée", "Stop", "TP1", "TP2"], "Valeur": [qty, f_entree, f_stop, tp1_secure, tp2_final]}))
+            col_t1, col_t2 = st.columns(2)
+            with col_t1: st.info(f"**ACCUMULATION**\n- Entrée: {f_entree:.2f}$\n- Qty: {qty}")
+            with col_t2: st.success(f"**SORTIES**\n- TP1: {tp1_secure:.2f}$\n- TP2: {tp2_final:.2f}$\n- Stop: {f_stop:.2f}$")
 
-        # --- GRAPHIQUE ---
+        if col_btn3.button("📋 Voir la Fiche du Trade"):
+            st.table(pd.DataFrame({"Paramètre": ["Quantité", "Entrée (C2)", "TP1", "TP2 (C3)", "Stop Loss"], 
+                                   "Valeur": [qty, f"{f_entree:.2f} $", f"{tp1_secure:.2f} $", f"{tp2_final:.2f} $", f"{f_stop:.2f} $"]}))
+
+        # --- AMÉLIORATION : DATES DANS LE GRAPHIQUE ---
         df_plot = df_15.tail(600)
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
         fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'], name='Prix'), row=1, col=1)
         
-        levels = {"T1": t1_pivot, "C2": f_entree, "SOLDES": f_soldes, "TP1": tp1_secure, "TP2": tp2_final, "STOP": f_stop}
-        colors = {"T1": "white", "C2": "cyan", "SOLDES": "yellow", "TP1": "#FFA500", "TP2": "#00FF00", "STOP": "red"}
+        for idx, row in swings_df.iterrows():
+            swing_dt = pd.to_datetime(row['Date'])
+            if swing_dt in df_plot.index:
+                fig.add_vline(x=swing_dt, line_dash="dash", line_color="white", line_width=1, row=1, col=1)
+                fig.add_annotation(x=swing_dt, y=row['Prix'], text=f"PIVOT {row['Date'][:10]}", showarrow=True, arrowhead=2, row=1, col=1)
+
+        levels = {"T1": t1_pivot, "C2": f_entree, "SOLDES": f_soldes, "TP1": tp1_secure, "TP2": tp2_final, "TP3": tp3_grand_profit, "STOP": f_stop}
+        colors = {"T1": "white", "C2": "cyan", "SOLDES": "yellow", "TP1": "#FFA500", "TP2": "#00FF00", "TP3": "#00FFFF", "STOP": "red"}
         for lbl, val in levels.items():
             fig.add_hline(y=val, line_dash="dot", line_color=colors[lbl], annotation_text=f"{lbl}: {val:.2f}$", annotation_position="top left", row=1, col=1)
 
-        # Correction : sa_15
         _, sa_15, sb_15 = get_ichimoku_score(df_15, mode)
         fig.add_trace(go.Scatter(x=df_15.index, y=sa_15, line=dict(color='rgba(0, 255, 0, 0.1)'), name='Kumo A'), row=1, col=1)
         fig.add_trace(go.Scatter(x=df_15.index, y=sb_15, line=dict(color='rgba(255, 0, 0, 0.1)'), fill='tonexty', name='Kumo B'), row=1, col=1)
@@ -143,4 +156,4 @@ try:
         st.plotly_chart(fig, use_container_width=True)
 
 except Exception as e:
-    st.error(f"Erreur : {e}")
+    st.error(f"Erreur de données : {e}")
