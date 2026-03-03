@@ -10,12 +10,11 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="Terminal Moons Pro : Intelligence Flux", layout="wide")
 st.title("🏦 Terminal Expert : Gestion Multi-Cibles & Sécurité")
 
-# --- DOCUMENTATION (PRÉSERVÉE) ---
+# --- DOCUMENTATION ---
 with st.expander("📖 DOCUMENTATION & ALGORITHME DE L'AGENT"):
     st.markdown("""
     ### 1. Logique de l'Algorithme
     * **C1** : T1 Valeur Pivot | **C2** : Prix d'entrée | **C3** : Prix de vente TP2 | **C4** : Filtre Dynamique.
-    * **TP1 / TP2 / TP3** : Sorties échelonnées (50% / 30% / 20%).
     """)
 
 with st.sidebar:
@@ -26,7 +25,7 @@ with st.sidebar:
     risk_pc = st.slider("Risque par trade (%)", 0.5, 15.0, 5.0) / 100
     lookback_max = st.slider("Fenêtre Max du Swing (jours)", 15, 120, 90)
 
-# --- FONCTIONS TECHNIQUES (PRÉSERVÉES) ---
+# --- FONCTIONS TECHNIQUES ---
 def get_ichimoku_score(data, mode_trade):
     if len(data) < 52: return 0, None, None, None, None
     px = data['Close'].iloc[-1]
@@ -55,11 +54,11 @@ def find_dynamic_swings(data, mode_trade, atr_val):
     df_temp = data.copy().sort_values(by=col, ascending=(mode_trade == "VENTE (Short)"))
     for idx, row in df_temp.iterrows():
         if all(abs((idx - pd.to_datetime(s['Date'])).days) >= dynamic_dist for s in swings):
-            swings.append({'Date': idx.strftime('%Y-%m-%d'), 'Prix': round(row[col], 2)})
+            swings.append({'Date': idx.strftime('%Y-%m-%d %H:%M:%S'), 'Prix': round(row[col], 2)})
         if len(swings) >= 2: break
     return pd.DataFrame(swings), dynamic_dist
 
-# --- LOGIQUE DE CALCUL CENTRALE ---
+# --- LOGIQUE DE CALCUL ---
 try:
     df_d = yf.download(ticker, period="1y", interval="1d", auto_adjust=True, progress=False)
     df_15 = yf.download(ticker, period="60d", interval="15m", auto_adjust=True, progress=False)
@@ -74,6 +73,8 @@ try:
         swings_df, dist_calculee = find_dynamic_swings(df_recent, mode, atr_d)
         
         t1_pivot = swings_df.iloc[0]['Prix'] 
+        t1_date = swings_df.iloc[0]['Date']
+        
         base_ref = df_recent['Low'].min() if mode == "ACHAT (Long)" else df_recent['High'].max()
         diff = abs(t1_pivot - base_ref)
         
@@ -99,53 +100,45 @@ try:
         st.markdown(f"<h3 style='text-align: center; color: {trend_color};'>Marché {trend_label}</h3>", unsafe_allow_html=True)
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("C1 (T1 Valeur Pivot)", swings_df.iloc[0]['Date'], f"{t1_pivot:.2f} $")
+        c1.metric("C1 (T1 Valeur Pivot)", swings_df.iloc[0]['Date'][:10], f"{t1_pivot:.2f} $")
         c2.metric("C2 (Prix d'entrée)", f"{f_entree:.2f} $")
         c3.metric("C3 (Prix de vente TP2)", f"{tp2_final:.2f} $")
         c4.metric("C4 (Filtre Dynamique)", f"{dist_calculee} jrs")
         
         st.divider()
         col_btn1, col_btn2, col_btn3 = st.columns(3)
-        
-        # ACTIONS DES BOUTONS
         if col_btn1.button("🚀 Analyser la Confluence"):
             st.table(swings_df)
-            st.success(f"Score Ichimoku {score_trend}/4")
-        
         if col_btn2.button("📈 Anticiper : Plan de Trade"):
-            col_t1, col_t2 = st.columns(2)
-            with col_t1: st.info(f"**ACCUMULATION**\n- Entrée: {f_entree:.2f}$\n- Qty: {qty}")
-            with col_t2: st.success(f"**SORTIES**\n- TP1: {tp1_secure:.2f}$\n- TP2: {tp2_final:.2f}$\n- Stop: {f_stop:.2f}$")
-
-        # --- AMÉLIORATION : VOIR LA FICHE (SANS TÉLÉCHARGEMENT) ---
+            st.info(f"Entrée: {f_entree:.2f}$ | Qty: {qty} | TP1: {tp1_secure:.2f}$ | TP2: {tp2_final:.2f}$")
         if col_btn3.button("📋 Voir la Fiche du Trade"):
-            st.write("---")
-            st.markdown(f"""
-            ### 📝 RÉCAPITULATIF DU PLAN DE TRADE
-            **Symbole :** {ticker} | **Direction :** {mode}
-            
-            | Paramètre | Valeur |
-            | :--- | :--- |
-            | **Quantité d'actions** | {qty} titres |
-            | **Entrée (C2)** | {f_entree:.2f} $ |
-            | **Stop Loss** | {f_stop:.2f} $ |
-            | **Take Profit 1 (50%)** | {tp1_secure:.2f} $ |
-            | **Take Profit 2 (C3)** | {tp2_final:.2f} $ |
-            | **Profit Max (TP3)** | {tp3_grand_profit:.2f} $ |
-            
-            *Généré le {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*
-            """)
-            st.write("---")
+            st.table(pd.DataFrame({"Paramètre": ["Quantité", "Entrée", "Stop", "TP1", "TP2"], "Valeur": [qty, f_entree, f_stop, tp1_secure, tp2_final]}))
 
-        # --- GRAPHIQUE ---
+        # --- GRAPHIQUE AMÉLIORÉ AVEC DATES ---
         df_plot = df_15.tail(600)
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
         fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'], name='Prix'), row=1, col=1)
-        levels = {"T1": t1_pivot, "C2": f_entree, "SOLDES": f_soldes, "TP1": tp1_secure, "TP2": tp2_final, "TP3": tp3_grand_profit, "STOP": f_stop}
-        colors = {"T1": "white", "C2": "cyan", "SOLDES": "yellow", "TP1": "#FFA500", "TP2": "#00FF00", "TP3": "#00FFFF", "STOP": "red"}
+        
+        # AJOUT DES LIGNES DE DATES (SWINGS)
+        for idx, row in swings_df.iterrows():
+            swing_dt = pd.to_datetime(row['Date'])
+            if swing_dt in df_plot.index:
+                fig.add_vline(x=swing_dt, line_dash="dash", line_color="white", line_width=1, row=1, col=1)
+                fig.add_annotation(x=swing_dt, y=row['Prix'], text=f"PIVOT {row['Date'][:10]}", showarrow=True, arrowhead=2, row=1, col=1)
+
+        # Niveaux Horizontaux (Labels Gauche)
+        levels = {"T1": t1_pivot, "C2": f_entree, "SOLDES": f_soldes, "TP1": tp1_secure, "TP2": tp2_final, "STOP": f_stop}
+        colors = {"T1": "white", "C2": "cyan", "SOLDES": "yellow", "TP1": "#FFA500", "TP2": "#00FF00", "STOP": "red"}
         for lbl, val in levels.items():
             fig.add_hline(y=val, line_dash="dot", line_color=colors[lbl], annotation_text=f"{lbl}: {val:.2f}$", annotation_position="top left", row=1, col=1)
+
+        # Ichimoku & Volume
+        _, sa_15, sb_15 = get_ichimoku_score(df_15, mode)
+        fig.add_trace(go.Scatter(x=df_15.index, y=sa__15, line=dict(color='rgba(0, 255, 0, 0.1)'), name='Kumo A'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df_15.index, y=sb_15, line=dict(color='rgba(255, 0, 0, 0.1)'), fill='tonexty', name='Kumo B'), row=1, col=1)
+        
+        fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, showlegend=False)
         st.plotly_chart(fig, use_container_width=True)
 
 except Exception as e:
-    st.error(f"Erreur de données : {e}")
+    st.error(f"Erreur : {e}")
