@@ -59,7 +59,7 @@ def find_dynamic_swings(data, mode_trade, atr_val):
         if len(swings) >= 2: break
     return pd.DataFrame(swings), dynamic_dist
 
-# --- LOGIQUE DE CALCUL CENTRALE (CORRECTION FICHE) ---
+# --- LOGIQUE DE CALCUL CENTRALE ---
 try:
     df_d = yf.download(ticker, period="1y", interval="1d", auto_adjust=True, progress=False)
     df_15 = yf.download(ticker, period="60d", interval="15m", auto_adjust=True, progress=False)
@@ -106,6 +106,8 @@ try:
         
         st.divider()
         col_btn1, col_btn2, col_btn3 = st.columns(3)
+        
+        # ACTIONS DES BOUTONS
         if col_btn1.button("🚀 Analyser la Confluence"):
             st.table(swings_df)
             st.success(f"Score Ichimoku {score_trend}/4")
@@ -115,11 +117,27 @@ try:
             with col_t1: st.info(f"**ACCUMULATION**\n- Entrée: {f_entree:.2f}$\n- Qty: {qty}")
             with col_t2: st.success(f"**SORTIES**\n- TP1: {tp1_secure:.2f}$\n- TP2: {tp2_final:.2f}$\n- Stop: {f_stop:.2f}$")
 
-        # --- CORRECTION : BOUTON SAUVEGARDE TOUJOURS PRÊT ---
-        report_data = f"FICHE TRADE {ticker}\nDate: {datetime.now()}\nEntrée C2: {f_entree:.2f}\nQty: {qty}\nTP1: {tp1_secure:.2f}\nTP2: {tp2_final:.2f}\nStop: {f_stop:.2f}"
-        col_btn3.download_button("💾 Sauvegarder la Fiche", report_data, file_name=f"Trade_{ticker}.txt")
+        # --- AMÉLIORATION : VOIR LA FICHE (SANS TÉLÉCHARGEMENT) ---
+        if col_btn3.button("📋 Voir la Fiche du Trade"):
+            st.write("---")
+            st.markdown(f"""
+            ### 📝 RÉCAPITULATIF DU PLAN DE TRADE
+            **Symbole :** {ticker} | **Direction :** {mode}
+            
+            | Paramètre | Valeur |
+            | :--- | :--- |
+            | **Quantité d'actions** | {qty} titres |
+            | **Entrée (C2)** | {f_entree:.2f} $ |
+            | **Stop Loss** | {f_stop:.2f} $ |
+            | **Take Profit 1 (50%)** | {tp1_secure:.2f} $ |
+            | **Take Profit 2 (C3)** | {tp2_final:.2f} $ |
+            | **Profit Max (TP3)** | {tp3_grand_profit:.2f} $ |
+            
+            *Généré le {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*
+            """)
+            st.write("---")
 
-        # --- GRAPHIQUE (PRÉSERVÉ) ---
+        # --- GRAPHIQUE ---
         df_plot = df_15.tail(600)
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
         fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'], name='Prix'), row=1, col=1)
