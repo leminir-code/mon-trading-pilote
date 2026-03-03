@@ -7,8 +7,8 @@ from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Terminal Moons Pro : Trend & Swing", layout="wide")
-st.title("🏦 Terminal Expert : Analyse de Tendance & Swings Dynamiques")
+st.set_page_config(page_title="Terminal Moons Pro : Intelligence Flux", layout="wide")
+st.title("🏦 Terminal Expert : Smart Swing & Filtre de Conviction")
 
 with st.sidebar:
     st.header("⚙️ Configuration")
@@ -51,6 +51,7 @@ def calculate_atr(data, period=14):
 def find_dynamic_swings(data, mode_trade, atr_val):
     col = 'High' if mode_trade == "ACHAT (Long)" else 'Low'
     price_avg = data['Close'].mean()
+    # Distance dynamique basée sur la volatilité
     dynamic_dist = max(3, int((atr_val / price_avg) * 500)) 
     
     swings = []
@@ -80,8 +81,8 @@ if btn_analyse or btn_anticipe:
             px_actuel = df_15['Close'].iloc[-1]
             atr_v = calculate_atr(df_d).iloc[-1]
 
-            # --- 1. DÉTECTION TENDANCE (NOUVEAU/RÉINTÉGRÉ) ---
-            score_trend, _, _, sa_d, sb_d = get_ichimoku_score(df_d, "ACHAT (Long)")
+            # --- 1. TENDANCE DU MARCHÉ ---
+            score_trend, _, _, _, _ = get_ichimoku_score(df_d, "ACHAT (Long)")
             if score_trend >= 3:
                 trend_label, trend_color = "HAUSSIER 📈", "#00FF00"
             elif score_trend <= 1:
@@ -101,51 +102,58 @@ if btn_analyse or btn_anticipe:
                 "0.5": swing_point - (0.5 * diff) if mode == "ACHAT (Long)" else swing_point + (0.5 * diff),
                 "0.618": swing_point - (0.618 * diff) if mode == "ACHAT (Long)" else swing_point + (0.618 * diff),
                 "0.786": swing_point - (0.786 * diff) if mode == "ACHAT (Long)" else swing_point + (0.786 * diff),
-                "1.618": swing_point + (0.618 * diff) if mode == "ACHAT (Long)" else swing_point - (0.618 * diff)
+                "OBJ 1.618": swing_point + (0.618 * diff) if mode == "ACHAT (Long)" else swing_point - (0.618 * diff)
             }
 
-            # --- 3. AFFICHAGE DES MÉTRIQUES ---
+            # --- 3. AFFICHAGE MÉTRIQUES ---
             st.divider()
             st.markdown(f"<h1 style='text-align: center;'>{ticker} : {px_actuel:.2f} $</h1>", unsafe_allow_html=True)
             st.markdown(f"<h3 style='text-align: center; color: {trend_color};'>Marché {trend_label}</h3>", unsafe_allow_html=True)
             
+            score_d, _, _, _, _ = get_ichimoku_score(df_d, mode)
+            score_15, _, _, sa_15, sb_15 = get_ichimoku_score(df_15, mode)
+            vol_ratio = df_15['Volume'].iloc[-1] / df_15['Volume'].rolling(20).mean().iloc[-1]
+
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Date du Pivot", swing_date, f"{swing_point:.2f} $")
-            c2.metric("Score Ichimoku (D)", f"{score_trend}/4")
+            c2.metric("Scores (D|15m)", f"{score_d}/4 | {score_15}/4")
             c3.metric("Filtre Dynamique", f"{dist_calculee} jours")
-            vol_ratio = df_15['Volume'].iloc[-1] / df_15['Volume'].rolling(20).mean().iloc[-1]
             c4.metric("Intensité Volume", f"{vol_ratio:.2f}x")
             st.divider()
 
-            st.write("🔍 **Swings Majeurs (Ecart dynamique respecté) :**")
+            st.write("🔍 **Derniers Swings identifiés (Ecart dynamique respecté) :**")
             st.table(swings_df)
 
             if btn_analyse:
                 st.subheader("🚀 Diagnostic de Confluence")
-                # Alerte si on trade contre la tendance
-                if (mode == "ACHAT (Long)" and trend_label == "BAISSIER 📉") or (mode == "VENTE (Short)" and trend_label == "HAUSSIER 📈"):
-                    st.warning(f"⚠️ ATTENTION : Tu tentes un trade en contre-tendance. Le marché est globalement {trend_label}.")
-                
                 en_zone = min(f_levels["0.5"], f_levels["0.786"]) <= px_actuel <= max(f_levels["0.5"], f_levels["0.786"])
-                if en_zone and vol_ratio >= 1.2:
-                    st.success("🎯 CONFLUENCE : Structure validée par le volume.")
+                if en_zone and vol_ratio >= 0.8:
+                    st.success("🎯 CONFLUENCE : Structure validée par le volume en zone.")
                 else:
-                    st.info("🔭 Observation : En attente du signal optimal.")
+                    st.info("🔭 Observation : En attente de confluence ou de zone.")
 
             elif btn_anticipe:
-                st.subheader("📈 Plan Stratégique")
-                st.write(f"### Prix d'entrée (0.618) : **{f_levels['0.618']:.2f} $** | Objectif : **{f_levels['1.618']:.2f} $**")
+                st.subheader("📉 Plan Stratégique")
+                st.write(f"### Prix d'entrée (0.618) : **{f_levels['0.618']:.2f} $** | Objectif : **{f_levels['OBJ 1.618']:.2f} $**")
 
             # --- 4. GRAPHIQUE ---
             df_plot = df_15.tail(600)
             fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
             fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'], name='Prix'), row=1, col=1)
             
-            # Ichimoku 15m (conduit)
-            _, _, _, sa_15, sb_15 = get_ichimoku_score(df_15, mode)
+            # Ichimoku
             fig.add_trace(go.Scatter(x=df_15.index, y=sa_15, line=dict(color='rgba(0, 255, 0, 0.1)'), name='Kumo A'), row=1, col=1)
             fig.add_trace(go.Scatter(x=df_15.index, y=sb_15, line=dict(color='rgba(255, 0, 0, 0.1)'), fill='tonexty', name='Kumo B'), row=1, col=1)
             
-            # Fibonacci
-            fig.add_hrect(y0=f_levels["0.786"], y1=f_levels["0.5"], fillcolor="rgba(0, 255, 0, 0.12)", line_width=0, annotation_text="ZONE ACTION", row=1, col=1)
+            # Fibonacci - CORRECTION INDENTATION ICI
+            fig.add_hrect(y0=f_levels["0.786"], y1=f_levels["0.5"], fillcolor="rgba(0, 255, 0, 0.12)", line_width=0, annotation_text="ZONE ACTION", annotation_position="top left", row=1, col=1)
+            
             for lbl, val in f_levels.items():
+                fig.add_hline(y=val, line_dash="dot", line_color="rgba(255,255,255,0.4)", 
+                             annotation_text=f"{lbl}: {val:.2f}$", annotation_position="bottom right", row=1, col=1)
+
+            fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
+                
+    except Exception as e:
+        st.error(f"Erreur d'exécution : {e}")
