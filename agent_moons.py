@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Terminal Moons Pro : Intelligence Flux", layout="wide")
-st.title("🏦 Terminal Expert : Stratégie & Sauvegarde d'Ordres")
+st.title("🏦 Terminal Expert : Stratégie & Sécurité Ichimoku")
 
 with st.sidebar:
     st.header("⚙️ Configuration")
@@ -83,45 +83,63 @@ if btn_analyse or btn_anticipe or btn_save:
             base_ref = df_recent['Low'].min() if mode == "ACHAT (Long)" else df_recent['High'].max()
             diff = abs(swing_point - base_ref)
             
-            # Niveaux Fibonacci
+            # --- CALCULS NIVEAUX & SÉCURITÉ ---
             f_entree = swing_point - (0.618 * diff) if mode == "ACHAT (Long)" else swing_point + (0.618 * diff)
             f_soldes = swing_point - (0.786 * diff) if mode == "ACHAT (Long)" else swing_point + (0.786 * diff)
             f_stop = swing_point - (0.95 * diff) if mode == "ACHAT (Long)" else swing_point + (0.95 * diff)
-            f_target = swing_point + (0.618 * diff) if mode == "ACHAT (Long)" else swing_point - (0.618 * diff)
+            
+            # Cible théorique
+            f_target_raw = swing_point + (0.618 * diff) if mode == "ACHAT (Long)" else swing_point - (0.618 * diff)
 
+            # --- ANALYSE TENDANCE & AJUSTEMENT KUMO ---
             score_trend, sa_d, sb_d = get_ichimoku_score(df_d, mode)
-            trend_label = "HAUSSIER 📈" if score_trend >= 3 else "BAISSIER 📉" if score_trend <= 1 else "NEUTRE ⚖️"
-            trend_color = "#00FF00" if trend_label == "HAUSSIER 📈" else "#FF0000" if trend_label == "BAISSIER 📉" else "#FFA500"
-            vol_moyen = df_15['Volume'].rolling(20).mean().iloc[-1]
-            vol_ratio = df_15['Volume'].iloc[-1] / vol_moyen
+            # Détection contre-tendance : score Ichimoku opposé
+            opposite_mode = "VENTE (Short)" if mode == "ACHAT (Long)" else "ACHAT (Long)"
+            score_real_trend, _, _ = get_ichimoku_score(df_d, mode) 
+            
+            trend_label = "HAUSSIER 📈" if score_real_trend >= 3 else "BAISSIER 📉" if score_real_trend <= 1 else "NEUTRE ⚖️"
+            
+            # AJUSTEMENT C3 (PROXIMITÉ NUAGE)
+            kumo_bottom = min(sa_d.iloc[-1], sb_d.iloc[-1])
+            kumo_top = max(sa_d.iloc[-1], sb_d.iloc[-1])
+            
+            is_contre_tendance = (mode == "ACHAT (Long)" and trend_label == "BAISSIER 📉") or (mode == "VENTE (Short)" and trend_label == "HAUSSIER 📈")
+            
+            if is_contre_tendance:
+                # Plafonner la vente juste avant le nuage
+                f_target = kumo_bottom if mode == "ACHAT (Long)" else kumo_top
+            else:
+                f_target = f_target_raw
 
-            # --- AFFICHAGE MÉTRIQUES (COMMUN) ---
+            # --- AFFICHAGE MÉTRIQUES ---
             st.divider()
             st.markdown(f"<h1 style='text-align: center;'>{ticker} : {px_actuel:.2f} $</h1>", unsafe_allow_html=True)
+            
+            trend_color = "#00FF00" if trend_label == "HAUSSIER 📈" else "#FF0000" if trend_label == "BAISSIER 📉" else "#FFA500"
             st.markdown(f"<h3 style='text-align: center; color: {trend_color};'>Marché {trend_label}</h3>", unsafe_allow_html=True)
             
+            # ALERTE SÉCURITÉ (INCOHÉRENCE 1)
+            if is_contre_tendance:
+                st.warning(f"⚠️ **ALERTE CONTRE-TENDANCE** : Tu tentes un {mode} dans un flux {trend_label}. Objectif de vente (C3) plafonné au nuage.")
+
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Date du Pivot", swings_df.iloc[0]['Date'], f"{swing_point:.2f} $")
             c2.metric("Prix Entrée (0.618)", f"{f_entree:.2f} $")
-            c3.metric("Prix Vente (Cible)", f"{f_target:.2f} $", delta=f"{((f_target/f_entree-1)*100):.1f}%")
+            c3.metric("Prix Vente (Cible)", f"{f_target:.2f} $", delta="Ajusté Kumo" if is_contre_tendance else None)
             c4.metric("Filtre Dynamique", f"{dist_calculee} jrs")
             st.divider()
 
             # --- DIFFÉRENCIATION DES BOUTONS ---
             if btn_analyse:
                 st.subheader("🚀 Diagnostic de Confluence")
-                cd1, cd2 = st.columns(2)
-                with cd1:
-                    if vol_ratio >= 1.2: st.success(f"✅ Volume puissant ({vol_ratio:.2f}x)")
-                    else: st.warning(f"⚠️ Volume faible ({vol_ratio:.2f}x)")
-                with cd2:
-                    if score_trend >= 3: st.success(f"✅ Tendance Ichimoku confirmée ({score_trend}/4)")
-                    else: st.error(f"❌ Tendance fragile ({score_trend}/4)")
-                st.write("**Historique des Swings identifiés :**")
+                if score_real_trend < 2:
+                    st.error(f"❌ **TRADE NON RECOMMANDÉ** : Score Ichimoku trop faible ({score_real_trend}/4).")
+                else:
+                    st.success(f"✅ Diagnostic validé : Score Ichimoku {score_real_trend}/4.")
                 st.table(swings_df)
 
             elif btn_anticipe:
-                st.subheader(f"📋 Ticket d'Ordre Courtage (Capital : {capital} $)")
+                st.subheader(f"📋 Ticket d'Ordre Courtage (Investissement : {capital} $)")
                 qty = int((capital * risk_pc) / abs(f_entree - f_stop)) if abs(f_entree - f_stop) > 0 else 0
                 col_t1, col_t2 = st.columns(2)
                 with col_t1:
@@ -130,15 +148,15 @@ if btn_analyse or btn_anticipe or btn_save:
                     st.success(f"**ORDRE VENTE**\n- **Objectif Profit :** {f_target:.2f} $\n- **Stop Loss :** {f_stop:.2f} $")
 
             if btn_save:
-                report = f"FICHE DE TRADE - {ticker} ({datetime.now().strftime('%Y-%m-%d %H:%M')})\nDIRECTION : {mode} | MARCHÉ : {trend_label}\nORDRE D'ENTRÉE : {f_entree:.2f} $\nQUANTITÉ : {qty if 'qty' in locals() else 'Non calculée'} titres\nSTOP LOSS : {f_stop:.2f} $\nOBJECTIF VENTE : {f_target:.2f} $"
+                report = f"FICHE TRADE - {ticker} - {mode}\nOBJ VENTE AJUSTÉ : {f_target:.2f} $\nSCORE ICHIMOKU : {score_real_trend}/4"
                 st.download_button("📥 Télécharger le Ticket (.txt)", report, file_name=f"Trade_{ticker}.txt")
 
-            # --- GRAPHIQUE COMPLET (LABELS GAUCHE) ---
+            # --- GRAPHIQUE COMPLET ---
             df_plot = df_15.tail(600)
             fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
             fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'], name='Prix'), row=1, col=1)
             
-            # Ichimoku & Zones
+            # Ichimoku Cloud 15m
             _, sa_15, sb_15 = get_ichimoku_score(df_15, mode)
             fig.add_trace(go.Scatter(x=df_15.index, y=sa_15, line=dict(color='rgba(0, 255, 0, 0.1)'), name='Kumo A'), row=1, col=1)
             fig.add_trace(go.Scatter(x=df_15.index, y=sb_15, line=dict(color='rgba(255, 0, 0, 0.1)'), fill='tonexty', name='Kumo B'), row=1, col=1)
