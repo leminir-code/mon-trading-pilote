@@ -8,25 +8,16 @@ from datetime import datetime, timedelta
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Terminal Moons Pro : Intelligence Flux", layout="wide")
-st.title("🏦 Terminal Expert : Gestion Multi-Cibles & Sécurité")
+st.title("🏦 Terminal Expert : Gestion Multi-Cibles & Dates de Swing")
 
-# --- AMÉLIORATION : AIDE AVEC ALGORITHME DÉTAILLÉ ---
+# --- SECTION AIDE : ALGORITHME COMPLET ---
 with st.expander("📖 DOCUMENTATION & ALGORITHME DE L'AGENT"):
     st.markdown("""
-    ### 🛡️ Algorithme du Programme
-    1. **Scan de Volatilité (ATR)** : L'agent calcule l'ATR moyen sur 14 jours pour définir le "bruit" du marché.
-    2. **Filtrage Dynamique (C4)** : L'écart minimal entre les pivots est calculé par la formule : `int((ATR / Prix) * 500)`. Cela rend les dates de swing intelligentes.
-    3. **Identification du Pivot (T1/C1)** : Recherche du sommet ou creux extrême dans la fenêtre de jours (Lookback) définie.
-    4. **Retracement Fibonacci (C2)** : Application du ratio d'or de **0.618** sur l'amplitude du mouvement pour définir l'entrée.
-    5. **Score Ichimoku** : Analyse de 4 points (Prix vs Nuage, Tenkan/Kijun, SSA/SSB, Chikou) pour valider la force du flux.
-    6. **Plafonnement de Sécurité (C3)** : Si le mode choisi est inverse à la tendance Ichimoku, l'objectif est automatiquement ramené à la lisière du Nuage (Kumo).
-    7. **Calcul de Position** : La quantité est définie par : `(Capital * % Risque) / (Entrée - Stop)`.
-
-    ### 📊 Nomenclature des Affichages
-    * **C1** : Date et prix du Pivot T1.
-    * **C2** : Prix d'Entrée (Achat/Vente).
-    * **C3** : Prix de Vente final (TP2).
-    * **C4** : Valeur du filtre de distance dynamique.
+    ### 🛡️ Algorithme de Détection Dynamique
+    1. **Scan ATR** : Calcul de la volatilité pour définir l'écart minimum (C4).
+    2. **Détection Temporelle** : L'agent identifie les deux pivots les plus significatifs sur 1 an.
+    3. **Projection Graphique** : Les dates détectées en Daily sont synchronisées et tracées sur le flux 15 min.
+    4. **Calcul Fibonacci** : Les niveaux C2, Soldes et C3 découlent directement de ces points dynamiques.
     """)
 
 with st.sidebar:
@@ -37,7 +28,7 @@ with st.sidebar:
     risk_pc = st.slider("Risque par trade (%)", 0.5, 15.0, 5.0) / 100
     lookback_max = st.slider("Fenêtre Max du Swing (jours)", 15, 120, 91)
 
-# --- FONCTIONS TECHNIQUES (PRÉSERVÉES) ---
+# --- FONCTIONS TECHNIQUES ---
 def get_ichimoku_score(data, mode_trade):
     if len(data) < 52: return 0, None, None, None, None
     px = data['Close'].iloc[-1]
@@ -50,13 +41,6 @@ def get_ichimoku_score(data, mode_trade):
     chikou_lib = px > data['Close'].shift(26).iloc[-1] if mode_trade == "ACHAT (Long)" else px < data['Close'].shift(26).iloc[-1]
     conds = [px > max(sa.iloc[-1], sb.iloc[-1]), sa.iloc[-1] > sb.iloc[-1], tenkan.iloc[-1] > kijun.iloc[-1], chikou_lib] if mode_trade == "ACHAT (Long)" else [px < min(sa.iloc[-1], sb.iloc[-1]), sa.iloc[-1] < sb.iloc[-1], tenkan.iloc[-1] < kijun.iloc[-1], chikou_lib]
     return sum(conds), sa, sb
-
-def calculate_atr(data, period=14):
-    high_low = data['High'] - data['Low']
-    high_close = np.abs(data['High'] - data['Close'].shift())
-    low_close = np.abs(data['Low'] - data['Close'].shift())
-    ranges = pd.concat([high_low, high_close, low_close], axis=1)
-    return np.max(ranges, axis=1).rolling(period).mean()
 
 def find_dynamic_swings(data, mode_trade, atr_val):
     col = 'High' if mode_trade == "ACHAT (Long)" else 'Low'
@@ -80,12 +64,11 @@ try:
         if isinstance(df_15.columns, pd.MultiIndex): df_15.columns = df_15.columns.get_level_values(0)
 
         px_actuel = df_15['Close'].iloc[-1]
-        atr_d = calculate_atr(df_d).iloc[-1]
-        df_recent = df_d.tail(lookback_max)
-        swings_df, dist_calculee = find_dynamic_swings(df_recent, mode, atr_d)
+        atr_d = (df_d['High'] - df_d['Low']).rolling(14).mean().iloc[-1]
+        swings_df, dist_calculee = find_dynamic_swings(df_d.tail(lookback_max), mode, atr_d)
         
         t1_pivot = swings_df.iloc[0]['Prix'] 
-        base_ref = df_recent['Low'].min() if mode == "ACHAT (Long)" else df_recent['High'].max()
+        base_ref = df_d.tail(lookback_max)['Low'].min() if mode == "ACHAT (Long)" else df_d.tail(lookback_max)['High'].max()
         diff = abs(t1_pivot - base_ref)
         
         f_entree = t1_pivot - (0.618 * diff) if mode == "ACHAT (Long)" else t1_pivot + (0.618 * diff)
@@ -93,58 +76,41 @@ try:
         f_stop = t1_pivot - (0.95 * diff) if mode == "ACHAT (Long)" else t1_pivot + (0.95 * diff)
         
         score_trend, sa_d, sb_d = get_ichimoku_score(df_d, mode)
-        trend_label = "HAUSSIER 📈" if score_trend >= 3 else "BAISSIER 📉" if score_trend <= 1 else "NEUTRE ⚖️"
-        trend_color = "#00FF00" if trend_label == "HAUSSIER 📈" else "#FF0000" if trend_label == "BAISSIER 📉" else "#FFA500"
-
-        kumo_limit = min(sa_d.iloc[-1], sb_d.iloc[-1]) if mode == "ACHAT (Long)" else max(sa_d.iloc[-1], sb_d.iloc[-1])
-        is_contre_tendance = (mode == "ACHAT (Long)" and trend_label == "BAISSIER 📉") or (mode == "VENTE (Short)" and trend_label == "HAUSSIER 📈")
-        
-        tp2_theo = (t1_pivot + (0.618 * diff) if mode == "ACHAT (Long)" else t1_pivot - (0.618 * diff))
-        tp2_final = kumo_limit if is_contre_tendance and ((mode == "ACHAT (Long)" and kumo_limit > f_entree) or (mode == "VENTE (Short)" and kumo_limit < f_entree)) else tp2_theo
-
+        tp2_final = t1_pivot + (0.618 * diff) if mode == "ACHAT (Long)" else t1_pivot - (0.618 * diff)
         tp1_secure = (f_entree + tp2_final) / 2
-        tp3_grand_profit = t1_pivot + (1.618 * diff) if mode == "ACHAT (Long)" else t1_pivot - (1.618 * diff)
         qty = int((capital * risk_pc) / abs(f_entree - f_stop)) if abs(f_entree - f_stop) > 0 else 0
 
         # --- INTERFACE ---
         st.divider()
         st.markdown(f"<h1 style='text-align: center;'>{ticker} : {px_actuel:.2f} $</h1>", unsafe_allow_html=True)
-        st.markdown(f"<h3 style='text-align: center; color: {trend_color};'>Marché {trend_label}</h3>", unsafe_allow_html=True)
-
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("C1 (T1 Valeur Pivot)", swings_df.iloc[0]['Date'][:10], f"{t1_pivot:.2f} $")
         c2.metric("C2 (Prix d'entrée)", f"{f_entree:.2f} $")
-        c3.metric("C3 (Prix de vente TP2)", f"{tp2_final:.2f} $")
+        c3.metric("C3 (Prix de vente)", f"{tp2_final:.2f} $")
         c4.metric("C4 (Filtre Dynamique)", f"{dist_calculee} jrs")
         
         st.divider()
         col_btn1, col_btn2, col_btn3 = st.columns(3)
-        if col_btn1.button("🚀 Analyser la Confluence"):
-            st.table(swings_df)
-            st.success(f"Score Ichimoku {score_trend}/4")
-        
+        if col_btn1.button("🚀 Analyser la Confluence"): st.table(swings_df)
         if col_btn2.button("📈 Anticiper : Plan de Trade"):
-            col_t1, col_t2 = st.columns(2)
-            with col_t1: st.info(f"**ACCUMULATION**\n- Entrée: {f_entree:.2f}$\n- Qty: {qty}")
-            with col_t2: st.success(f"**SORTIES**\n- TP1: {tp1_secure:.2f}$\n- TP2: {tp2_final:.2f}$\n- Stop: {f_stop:.2f}$")
+            st.info(f"Entrée: {f_entree:.2f}$ | Qty: {qty} | TP1: {tp1_secure:.2f}$ | Stop: {f_stop:.2f}$")
+        if col_btn3.button("📋 Voir la Fiche"): st.table(pd.DataFrame({"Paramètre": ["Qty", "Entrée", "Stop"], "Valeur": [qty, f_entree, f_stop]}))
 
-        if col_btn3.button("📋 Voir la Fiche du Trade"):
-            st.table(pd.DataFrame({"Paramètre": ["Quantité", "Entrée (C2)", "TP1", "TP2 (C3)", "Stop Loss"], 
-                                   "Valeur": [qty, f"{f_entree:.2f} $", f"{tp1_secure:.2f} $", f"{tp2_final:.2f} $", f"{f_stop:.2f} $"]}))
-
-        # --- AMÉLIORATION : DATES DANS LE GRAPHIQUE ---
+        # --- GRAPHIQUE AMÉLIORÉ AVEC DATES ---
         df_plot = df_15.tail(600)
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
         fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'], name='Prix'), row=1, col=1)
         
+        # TRACÉ DES DATES DYNAMIQUE (Correction d'affichage)
         for idx, row in swings_df.iterrows():
-            swing_dt = pd.to_datetime(row['Date'])
-            if swing_dt in df_plot.index:
-                fig.add_vline(x=swing_dt, line_dash="dash", line_color="white", line_width=1, row=1, col=1)
-                fig.add_annotation(x=swing_dt, y=row['Prix'], text=f"PIVOT {row['Date'][:10]}", showarrow=True, arrowhead=2, row=1, col=1)
+            s_date = pd.to_datetime(row['Date'])
+            # On cherche l'index 15m le plus proche pour tracer la ligne
+            if s_date >= df_plot.index.min():
+                fig.add_vline(x=s_date, line_dash="dash", line_color="white", row=1, col=1)
+                fig.add_annotation(x=s_date, y=row['Prix'], text=f"PIVOT {row['Date'][:10]}", showarrow=True, row=1, col=1)
 
-        levels = {"T1": t1_pivot, "C2": f_entree, "SOLDES": f_soldes, "TP1": tp1_secure, "TP2": tp2_final, "TP3": tp3_grand_profit, "STOP": f_stop}
-        colors = {"T1": "white", "C2": "cyan", "SOLDES": "yellow", "TP1": "#FFA500", "TP2": "#00FF00", "TP3": "#00FFFF", "STOP": "red"}
+        levels = {"T1": t1_pivot, "C2": f_entree, "SOLDES": f_soldes, "TP1": tp1_secure, "TP2": tp2_final, "STOP": f_stop}
+        colors = {"T1": "white", "C2": "cyan", "SOLDES": "yellow", "TP1": "#FFA500", "TP2": "#00FF00", "STOP": "red"}
         for lbl, val in levels.items():
             fig.add_hline(y=val, line_dash="dot", line_color=colors[lbl], annotation_text=f"{lbl}: {val:.2f}$", annotation_position="top left", row=1, col=1)
 
@@ -156,4 +122,4 @@ try:
         st.plotly_chart(fig, use_container_width=True)
 
 except Exception as e:
-    st.error(f"Erreur de données : {e}")
+    st.error(f"Erreur : {e}")
