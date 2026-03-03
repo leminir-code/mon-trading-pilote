@@ -7,8 +7,8 @@ from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Terminal Moons Pro : Intelligence Flux", layout="wide")
-st.title("🏦 Terminal Expert : Smart Swing & Filtre de Conviction")
+st.set_page_config(page_title="Terminal Moons Pro Max : Intelligence Flux", layout="wide")
+st.title("🏦 Terminal Expert : Moons Pro Max")
 
 with st.sidebar:
     st.header("⚙️ Configuration")
