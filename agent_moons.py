@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Terminal Moons Pro : Intelligence Flux", layout="wide")
-st.title("🏦 Terminal Expert : Gestion Multi-Cibles & Soldes")
+st.title("🏦 Terminal Expert : Gestion Multi-Cibles & Dates de Swing")
 
 with st.sidebar:
     st.header("⚙️ Configuration")
@@ -79,46 +79,50 @@ if btn_analyse or btn_anticipe or btn_save:
             df_recent = df_d.tail(lookback_max)
             swings_df, dist_calculee = find_dynamic_swings(df_recent, mode, atr_d)
             
-            t1_pivot = swings_df.iloc[0]['Prix'] # T1 Valeur Pivot
+            t1_pivot = swings_df.iloc[0]['Prix'] 
             base_ref = df_recent['Low'].min() if mode == "ACHAT (Long)" else df_recent['High'].max()
             diff = abs(t1_pivot - base_ref)
             
-            # --- CALCULS NIVEAUX SÉCURISÉS ---
+            # --- CALCULS NIVEAUX ---
             f_entree = t1_pivot - (0.618 * diff) if mode == "ACHAT (Long)" else t1_pivot + (0.618 * diff)
             f_soldes = t1_pivot - (0.786 * diff) if mode == "ACHAT (Long)" else t1_pivot + (0.786 * diff)
             f_stop = t1_pivot - (0.95 * diff) if mode == "ACHAT (Long)" else t1_pivot + (0.95 * diff)
             
-            # Analyse Tendance (POUR LE TITRE)
             score_trend, sa_d, sb_d = get_ichimoku_score(df_d, mode)
             trend_label = "HAUSSIER 📈" if score_trend >= 3 else "BAISSIER 📉" if score_trend <= 1 else "NEUTRE ⚖️"
             trend_color = "#00FF00" if trend_label == "HAUSSIER 📈" else "#FF0000" if trend_label == "BAISSIER 📉" else "#FFA500"
 
-            # Ajustement C3 par le Nuage (Kumo)
             kumo_limit = min(sa_d.iloc[-1], sb_d.iloc[-1]) if mode == "ACHAT (Long)" else max(sa_d.iloc[-1], sb_d.iloc[-1])
             is_contre_tendance = (mode == "ACHAT (Long)" and trend_label == "BAISSIER 📉") or (mode == "VENTE (Short)" and trend_label == "HAUSSIER 📈")
             
-            # Cibles (TP1, TP2, TP3)
             tp2_final = kumo_limit if is_contre_tendance else (t1_pivot + (0.618 * diff) if mode == "ACHAT (Long)" else t1_pivot - (0.618 * diff))
             tp1_secure = (f_entree + tp2_final) / 2
             tp3_grand_profit = t1_pivot + (1.618 * diff) if mode == "ACHAT (Long)" else t1_pivot - (1.618 * diff)
 
-            # --- AFFICHAGE MÉTRIQUES (RÉTABLISSEMENT TENDANCE) ---
+            # --- AFFICHAGE MÉTRIQUES ---
             st.divider()
             st.markdown(f"<h1 style='text-align: center;'>{ticker} : {px_actuel:.2f} $</h1>", unsafe_allow_html=True)
             st.markdown(f"<h3 style='text-align: center; color: {trend_color};'>Marché {trend_label}</h3>", unsafe_allow_html=True)
-            
-            if is_contre_tendance:
-                st.warning(f"⚠️ **ALERTE CONTRE-TENDANCE** : Cible (C3) ajustée à la lisière du nuage.")
 
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("C1 (T1 Valeur Pivot)", swings_df.iloc[0]['Date'], f"{t1_pivot:.2f} $")
             c2.metric("C2 (Prix d'entrée)", f"{f_entree:.2f} $")
-            c3.metric("C3 (Prix de vente TP2)", f"{tp2_final:.2f} $", delta="Ajusté" if is_contre_tendance else None)
+            c3.metric("C3 (Prix de vente TP2)", f"{tp2_final:.2f} $")
             c4.metric("C4 (Filtre Dynamique)", f"{dist_calculee} jrs")
             st.divider()
 
-            # --- TICKET D'ORDRE (ACCUMULATION & SORTIES ÉCHELONNÉES) ---
-            if btn_anticipe:
+            # --- DIAGNOSTIC (RÉTABLISSEMENT DES DATES) ---
+            if btn_analyse:
+                st.subheader("🚀 Diagnostic de Confluence & Historique")
+                st.write("**Les deux dates de swing identifiées :**")
+                st.table(swings_df) # Affiche les dates et prix des deux derniers swings
+                
+                if score_trend < 2:
+                    st.error(f"❌ **TRADE NON RECOMMANDÉ** : Score Ichimoku trop faible ({score_trend}/4).")
+                else:
+                    st.success(f"✅ Score Ichimoku {score_trend}/4.")
+
+            elif btn_anticipe:
                 st.subheader(f"📋 Ticket d'Ordre Courtage (Investissement : {capital} $)")
                 qty = int((capital * risk_pc) / abs(f_entree - f_stop)) if abs(f_entree - f_stop) > 0 else 0
                 
@@ -128,16 +132,11 @@ if btn_analyse or btn_anticipe or btn_save:
                 with col_t2:
                     st.success(f"**SORTIES À PROFIT**\n- **TP1 (Vendre 50%) :** {tp1_secure:.2f} $\n- **TP2 / C3 (Vendre 30%) :** {tp2_final:.2f} $\n- **TP3 (Profit Max 20%) :** {tp3_grand_profit:.2f} $\n- **STOP LOSS :** {f_stop:.2f} $")
 
-            if btn_save:
-                report = f"TRADE {ticker} - {trend_label}\nENTRÉE (C2): {f_entree:.2f} $\nTP1: {tp1_secure:.2f} | TP2: {tp2_final:.2f} | TP3: {tp3_grand_profit:.2f}"
-                st.download_button("📥 Télécharger le Ticket (.txt)", report, file_name=f"Trade_{ticker}.txt")
-
             # --- GRAPHIQUE ---
             df_plot = df_15.tail(600)
             fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
             fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'], name='Prix'), row=1, col=1)
             
-            # Niveaux Fib (Labels Gauche)
             levels = {"T1 (PIVOT)": t1_pivot, "C2 (ENTRÉE)": f_entree, "SOLDES": f_soldes, "TP1": tp1_secure, "TP2": tp2_final, "TP3": tp3_grand_profit, "STOP": f_stop}
             colors = {"T1 (PIVOT)": "white", "C2 (ENTRÉE)": "cyan", "SOLDES": "yellow", "TP1": "#FFA500", "TP2": "#00FF00", "TP3": "#00FFFF", "STOP": "red"}
             for lbl, val in levels.items():
