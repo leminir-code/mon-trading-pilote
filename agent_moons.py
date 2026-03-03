@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Terminal Moons Pro : Intelligence Flux", layout="wide")
-st.title("🏦 Terminal Expert : Analyse Totale & Plan d'Exécution")
+st.title("🏦 Terminal Expert : Smart Swing & Plan d'Exécution")
 
 with st.sidebar:
     st.header("⚙️ Configuration")
@@ -77,14 +77,12 @@ if btn_analyse or btn_anticipe:
             f_stop = swing_point - (0.90 * diff) if mode == "ACHAT (Long)" else swing_point + (0.90 * diff)
             f_target = swing_point + (0.618 * diff) if mode == "ACHAT (Long)" else swing_point - (0.618 * diff)
 
-            # --- TENDANCE & VOLUME ---
+            # --- TENDANCE ---
             score_trend, _, _ = get_ichimoku_score(df_d, "ACHAT (Long)")
             trend_label = "HAUSSIER 📈" if score_trend >= 3 else "BAISSIER 📉" if score_trend <= 1 else "NEUTRE ⚖️"
             trend_color = "#00FF00" if "HAUSSIER" in trend_label else "#FF0000" if "BAISSIER" in trend_label else "#FFA500"
-            vol_moyen = df_15['Volume'].rolling(20).mean().iloc[-1]
-            vol_ratio = df_15['Volume'].iloc[-1] / vol_moyen
 
-            # --- AFFICHAGE MÉTRIQUES ---
+            # --- AFFICHAGE MÉTRIQUES (RÉTABLI) ---
             st.divider()
             st.markdown(f"<h1 style='text-align: center;'>{ticker} : {px_actuel:.2f} $</h1>", unsafe_allow_html=True)
             st.markdown(f"<h3 style='text-align: center; color: {trend_color};'>Marché {trend_label}</h3>", unsafe_allow_html=True)
@@ -92,8 +90,8 @@ if btn_analyse or btn_anticipe:
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Date du Pivot", swings_df.iloc[0]['Date'], f"{swing_point:.2f} $")
             c2.metric("Prix Entrée (0.618)", f"{f_0618:.2f} $")
-            c3.metric("Indication Vente", f"{f_target:.2f} $", delta=f"{((f_target/f_0618-1)*100):.1f}%")
-            c4.metric("Intensité Volume", f"{vol_ratio:.2f}x")
+            c3.metric("Prix Vente (Cible)", f"{f_target:.2f} $", delta=f"{((f_target/f_0618-1)*100):.1f}%")
+            c4.metric("Score Tendance", f"{score_trend}/4")
             st.divider()
 
             st.write("🔍 **Derniers Swings identifiés (pour tes tests historiques) :**")
@@ -102,11 +100,12 @@ if btn_analyse or btn_anticipe:
             if btn_anticipe:
                 st.subheader("📉 Plan Stratégique & Quantité")
                 qty = int((capital * risk_pc) / abs(f_0618 - f_stop))
-                st.write(f"### Acheter **{qty}** actions à **{f_0618:.2f} $**")
-                st.write(f"**Stop Loss :** {f_stop:.2f} $ | **Vendre à :** {f_target:.2f} $")
+                st.success(f"### Ordre suggéré : Acheter **{qty}** titres à **{f_0618:.2f} $**")
+                st.write(f"**Stop Loss de sécurité :** {f_stop:.2f} $ | **Objectif de Vente :** {f_target:.2f} $")
 
-            # --- 4. GRAPHIQUE COMPLET (AVEC CLOUD ET VOLUME) ---
+            # --- 4. GRAPHIQUE COMPLET (CLOUD + VOLUME RÉTABLIS) ---
             df_plot = df_15.tail(600)
+            vol_moyen = df_15['Volume'].rolling(20).mean().iloc[-1]
             fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
             
             # Candlesticks
