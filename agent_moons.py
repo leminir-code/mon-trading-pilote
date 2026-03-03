@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Terminal Moons Pro : Intelligence Flux", layout="wide")
-st.title("🏦 Terminal Expert : Stratégie & Sécurité Ichimoku")
+st.title("🏦 Terminal Expert : Gestion Multi-Cibles & Soldes")
 
 with st.sidebar:
     st.header("⚙️ Configuration")
@@ -83,90 +83,69 @@ if btn_analyse or btn_anticipe or btn_save:
             base_ref = df_recent['Low'].min() if mode == "ACHAT (Long)" else df_recent['High'].max()
             diff = abs(swing_point - base_ref)
             
-            # --- CALCULS NIVEAUX & SÉCURITÉ ---
+            # --- CALCULS NIVEAUX AMÉLIORÉS ---
             f_entree = swing_point - (0.618 * diff) if mode == "ACHAT (Long)" else swing_point + (0.618 * diff)
             f_soldes = swing_point - (0.786 * diff) if mode == "ACHAT (Long)" else swing_point + (0.786 * diff)
             f_stop = swing_point - (0.95 * diff) if mode == "ACHAT (Long)" else swing_point + (0.95 * diff)
             
-            # Cible théorique
-            f_target_raw = swing_point + (0.618 * diff) if mode == "ACHAT (Long)" else swing_point - (0.618 * diff)
+            # Cibles échelonnées
+            tp1_raw = swing_point # Pivot lui-même
+            tp2_raw = swing_point + (0.618 * diff) if mode == "ACHAT (Long)" else swing_point - (0.618 * diff)
+            tp3_raw = swing_point + (1.618 * diff) if mode == "ACHAT (Long)" else swing_point - (1.618 * diff)
 
-            # --- ANALYSE TENDANCE & AJUSTEMENT KUMO ---
+            # Analyse Tendance & Sécurité
             score_trend, sa_d, sb_d = get_ichimoku_score(df_d, mode)
-            # Détection contre-tendance : score Ichimoku opposé
-            opposite_mode = "VENTE (Short)" if mode == "ACHAT (Long)" else "ACHAT (Long)"
-            score_real_trend, _, _ = get_ichimoku_score(df_d, mode) 
-            
-            trend_label = "HAUSSIER 📈" if score_real_trend >= 3 else "BAISSIER 📉" if score_real_trend <= 1 else "NEUTRE ⚖️"
-            
-            # AJUSTEMENT C3 (PROXIMITÉ NUAGE)
-            kumo_bottom = min(sa_d.iloc[-1], sb_d.iloc[-1])
-            kumo_top = max(sa_d.iloc[-1], sb_d.iloc[-1])
-            
+            trend_label = "HAUSSIER 📈" if score_trend >= 3 else "BAISSIER 📉" if score_trend <= 1 else "NEUTRE ⚖️"
+            kumo_limit = min(sa_d.iloc[-1], sb_d.iloc[-1]) if mode == "ACHAT (Long)" else max(sa_d.iloc[-1], sb_d.iloc[-1])
             is_contre_tendance = (mode == "ACHAT (Long)" and trend_label == "BAISSIER 📉") or (mode == "VENTE (Short)" and trend_label == "HAUSSIER 📈")
             
-            if is_contre_tendance:
-                # Plafonner la vente juste avant le nuage
-                f_target = kumo_bottom if mode == "ACHAT (Long)" else kumo_top
-            else:
-                f_target = f_target_raw
+            # Ajustement si contre-tendance
+            tp2 = kumo_limit if is_contre_tendance else tp2_raw
+            tp1 = (f_entree + tp2) / 2 if is_contre_tendance else tp1_raw
+            tp3 = tp2 if is_contre_tendance else tp3_raw
 
-            # --- AFFICHAGE MÉTRIQUES ---
+            # --- AFFICHAGE MÉTRIQUES (NOMENCLATURE MISE À JOUR) ---
             st.divider()
             st.markdown(f"<h1 style='text-align: center;'>{ticker} : {px_actuel:.2f} $</h1>", unsafe_allow_html=True)
             
-            trend_color = "#00FF00" if trend_label == "HAUSSIER 📈" else "#FF0000" if trend_label == "BAISSIER 📉" else "#FFA500"
-            st.markdown(f"<h3 style='text-align: center; color: {trend_color};'>Marché {trend_label}</h3>", unsafe_allow_html=True)
-            
-            # ALERTE SÉCURITÉ (INCOHÉRENCE 1)
-            if is_contre_tendance:
-                st.warning(f"⚠️ **ALERTE CONTRE-TENDANCE** : Tu tentes un {mode} dans un flux {trend_label}. Objectif de vente (C3) plafonné au nuage.")
-
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Date du Pivot", swings_df.iloc[0]['Date'], f"{swing_point:.2f} $")
-            c2.metric("Prix Entrée (0.618)", f"{f_entree:.2f} $")
-            c3.metric("Prix Vente (Cible)", f"{f_target:.2f} $", delta="Ajusté Kumo" if is_contre_tendance else None)
-            c4.metric("Filtre Dynamique", f"{dist_calculee} jrs")
+            c1.metric("C1 (T1 Valeur Pivot)", swings_df.iloc[0]['Date'], f"{swing_point:.2f} $")
+            c2.metric("C2 (Prix d'entrée)", f"{f_entree:.2f} $")
+            c3.metric("C3 (Prix de vente TP2)", f"{tp2:.2f} $")
+            c4.metric("C4 (Filtre Dynamique)", f"{dist_calculee} jrs")
             st.divider()
 
-            # --- DIFFÉRENCIATION DES BOUTONS ---
-            if btn_analyse:
-                st.subheader("🚀 Diagnostic de Confluence")
-                if score_real_trend < 2:
-                    st.error(f"❌ **TRADE NON RECOMMANDÉ** : Score Ichimoku trop faible ({score_real_trend}/4).")
-                else:
-                    st.success(f"✅ Diagnostic validé : Score Ichimoku {score_real_trend}/4.")
-                st.table(swings_df)
-
-            elif btn_anticipe:
-                st.subheader(f"📋 Ticket d'Ordre Courtage (Investissement : {capital} $)")
+            # --- TICKET D'ORDRE AVEC SORTIES ÉCHELONNÉES ---
+            if btn_anticipe:
+                st.subheader(f"📋 Plan d'Exécution Courtage (Capital : {capital} $)")
                 qty = int((capital * risk_pc) / abs(f_entree - f_stop)) if abs(f_entree - f_stop) > 0 else 0
+                
                 col_t1, col_t2 = st.columns(2)
                 with col_t1:
-                    st.info(f"**ORDRE ACHAT**\n- **Quantité :** {qty} titres\n- **Prix Limit :** {f_entree:.2f} $\n- **Zone Soldes :** {f_soldes:.2f} $")
+                    st.info(f"**ZONE D'ACCUMULATION**\n- **Entrée (C2) :** {f_entree:.2f} $\n- **ZONE SOLDES :** {f_soldes:.2f} $\n- **Quantité :** {qty} titres")
                 with col_t2:
-                    st.success(f"**ORDRE VENTE**\n- **Objectif Profit :** {f_target:.2f} $\n- **Stop Loss :** {f_stop:.2f} $")
+                    st.success(f"**SORTIES À PROFIT**\n- **TP1 (50% titres) :** {tp1:.2f} $\n- **TP2 (30% titres) :** {tp2:.2f} $\n- **TP3 (Profit Max) :** {tp3:.2f} $\n- **STOP LOSS :** {f_stop:.2f} $")
 
             if btn_save:
-                report = f"FICHE TRADE - {ticker} - {mode}\nOBJ VENTE AJUSTÉ : {f_target:.2f} $\nSCORE ICHIMOKU : {score_real_trend}/4"
+                report = f"TRADE {ticker}\nENTRÉE : {f_entree:.2f} $\nTP1 : {tp1:.2f} | TP2 : {tp2:.2f} | TP3 : {tp3:.2f}"
                 st.download_button("📥 Télécharger le Ticket (.txt)", report, file_name=f"Trade_{ticker}.txt")
 
-            # --- GRAPHIQUE COMPLET ---
+            # --- GRAPHIQUE ---
             df_plot = df_15.tail(600)
             fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
             fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'], name='Prix'), row=1, col=1)
             
-            # Ichimoku Cloud 15m
+            # Niveaux Fib (Labels Gauche)
+            levels = {"C2 (ENTRÉE)": f_entree, "SOLDES": f_soldes, "TP1": tp1, "TP2": tp2, "TP3": tp3, "STOP": f_stop}
+            colors = {"C2 (ENTRÉE)": "cyan", "SOLDES": "yellow", "TP1": "#FFA500", "TP2": "#00FF00", "TP3": "#00FFFF", "STOP": "red"}
+            for lbl, val in levels.items():
+                fig.add_hline(y=val, line_dash="dot", line_color=colors[lbl], annotation_text=f"{lbl}: {val:.2f}$", annotation_position="top left", row=1, col=1)
+
+            # Volume & Nuage Ichimoku
             _, sa_15, sb_15 = get_ichimoku_score(df_15, mode)
             fig.add_trace(go.Scatter(x=df_15.index, y=sa_15, line=dict(color='rgba(0, 255, 0, 0.1)'), name='Kumo A'), row=1, col=1)
             fig.add_trace(go.Scatter(x=df_15.index, y=sb_15, line=dict(color='rgba(255, 0, 0, 0.1)'), fill='tonexty', name='Kumo B'), row=1, col=1)
             
-            levels = {"ENTRÉE": f_entree, "SOLDES": f_soldes, "STOP": f_stop, "VENTE": f_target}
-            colors = {"ENTRÉE": "cyan", "SOLDES": "yellow", "STOP": "red", "VENTE": "#00FF00"}
-            for lbl, val in levels.items():
-                fig.add_hline(y=val, line_dash="dot", line_color=colors[lbl], annotation_text=f"{lbl}: {val:.2f}$", annotation_position="top left", row=1, col=1)
-
-            # Volume
             v_colors = ['#26a69a' if c >= o else '#ef5350' for o, c in zip(df_plot['Open'], df_plot['Close'])]
             fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['Volume'], marker_color=v_colors), row=2, col=1)
 
