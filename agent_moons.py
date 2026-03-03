@@ -8,7 +8,27 @@ from datetime import datetime, timedelta
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Terminal Moons Pro : Intelligence Flux", layout="wide")
-st.title("🏦 Terminal Expert : Gestion Multi-Cibles & Dates de Swing")
+st.title("🏦 Terminal Expert : Gestion Multi-Cibles & Sécurité")
+
+# --- AJOUT DE LA DOCUMENTATION (SANS CHANGER LE PROGRAMME) ---
+with st.expander("📖 DOCUMENTATION & ALGORITHME DE L'AGENT"):
+    st.markdown("""
+    ### 1. Logique de l'Algorithme
+    * **Acquisition** : Flux hybride Daily (1 an) / 15min (60j).
+    * **Pivot Dynamique (T1)** : Identification du sommet/creux majeur selon l'ATR et le lookback.
+    * **Confluence Ichimoku** : Score sur 4 définissant l'état (Haussier/Baissier).
+    * **Projection Fibonacci** : Calcul de C2 (0.618), Soldes (0.786) et Stop (0.95).
+    * **Sécurité Kumo** : Plafonnement de C3 (Sortie) à la lisière du nuage en contre-tendance.
+    * **Gestion du Risque** : Calcul de quantité basé sur le capital (10k$) et le risque choisi.
+
+    ### 2. Nomenclature des Affichages
+    * **C1** : T1 Valeur Pivot (Date & Prix).
+    * **C2** : Prix d'entrée (Zone d'exécution).
+    * **C3** : Prix de vente final (TP2).
+    * **C4** : Filtre Dynamique (Écart ATR en jours).
+    * **TP1 / TP2 / TP3** : Sorties échelonnées (50% / 30% / 20%).
+    * **Labels** : Affichage impératif à gauche du graphique.
+    """)
 
 with st.sidebar:
     st.header("⚙️ Configuration")
@@ -83,7 +103,7 @@ if btn_analyse or btn_anticipe or btn_save:
             base_ref = df_recent['Low'].min() if mode == "ACHAT (Long)" else df_recent['High'].max()
             diff = abs(t1_pivot - base_ref)
             
-            # --- CALCULS NIVEAUX ---
+            # --- CALCULS ---
             f_entree = t1_pivot - (0.618 * diff) if mode == "ACHAT (Long)" else t1_pivot + (0.618 * diff)
             f_soldes = t1_pivot - (0.786 * diff) if mode == "ACHAT (Long)" else t1_pivot + (0.786 * diff)
             f_stop = t1_pivot - (0.95 * diff) if mode == "ACHAT (Long)" else t1_pivot + (0.95 * diff)
@@ -111,26 +131,21 @@ if btn_analyse or btn_anticipe or btn_save:
             c4.metric("C4 (Filtre Dynamique)", f"{dist_calculee} jrs")
             st.divider()
 
-            # --- DIAGNOSTIC (RÉTABLISSEMENT DES DATES) ---
             if btn_analyse:
                 st.subheader("🚀 Diagnostic de Confluence & Historique")
-                st.write("**Les deux dates de swing identifiées :**")
-                st.table(swings_df) # Affiche les dates et prix des deux derniers swings
-                
-                if score_trend < 2:
-                    st.error(f"❌ **TRADE NON RECOMMANDÉ** : Score Ichimoku trop faible ({score_trend}/4).")
-                else:
-                    st.success(f"✅ Score Ichimoku {score_trend}/4.")
+                st.write("**Dates de swing identifiées :**")
+                st.table(swings_df)
+                if score_trend < 2: st.error(f"❌ TRADE NON RECOMMANDÉ : Score {score_trend}/4")
+                else: st.success(f"✅ Score Ichimoku {score_trend}/4")
 
             elif btn_anticipe:
                 st.subheader(f"📋 Ticket d'Ordre Courtage (Investissement : {capital} $)")
                 qty = int((capital * risk_pc) / abs(f_entree - f_stop)) if abs(f_entree - f_stop) > 0 else 0
-                
                 col_t1, col_t2 = st.columns(2)
                 with col_t1:
                     st.info(f"**ACCUMULATION / SOLDES**\n- **Entrée (C2) :** {f_entree:.2f} $\n- **ZONE SOLDES :** {f_soldes:.2f} $\n- **Quantité :** {qty} titres")
                 with col_t2:
-                    st.success(f"**SORTIES À PROFIT**\n- **TP1 (Vendre 50%) :** {tp1_secure:.2f} $\n- **TP2 / C3 (Vendre 30%) :** {tp2_final:.2f} $\n- **TP3 (Profit Max 20%) :** {tp3_grand_profit:.2f} $\n- **STOP LOSS :** {f_stop:.2f} $")
+                    st.success(f"**SORTIES À PROFIT**\n- **TP1 (50%) :** {tp1_secure:.2f} $\n- **TP2 / C3 (30%) :** {tp2_final:.2f} $\n- **TP3 (Max 20%) :** {tp3_grand_profit:.2f} $\n- **STOP LOSS :** {f_stop:.2f} $")
 
             # --- GRAPHIQUE ---
             df_plot = df_15.tail(600)
@@ -142,7 +157,6 @@ if btn_analyse or btn_anticipe or btn_save:
             for lbl, val in levels.items():
                 fig.add_hline(y=val, line_dash="dot", line_color=colors[lbl], annotation_text=f"{lbl}: {val:.2f}$", annotation_position="top left", row=1, col=1)
 
-            # Ichimoku & Volume
             _, sa_15, sb_15 = get_ichimoku_score(df_15, mode)
             fig.add_trace(go.Scatter(x=df_15.index, y=sa_15, line=dict(color='rgba(0, 255, 0, 0.1)'), name='Kumo A'), row=1, col=1)
             fig.add_trace(go.Scatter(x=df_15.index, y=sb_15, line=dict(color='rgba(255, 0, 0, 0.1)'), fill='tonexty', name='Kumo B'), row=1, col=1)
