@@ -4,10 +4,11 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from datetime import datetime, timedelta
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Terminal Moons Pro : Intelligence Flux", layout="wide")
-st.title("🏦 Terminal Expert : Smart Swing & Filtre de Conviction")
+st.title("🏦 Terminal Expert : Swings Distincts & Validation")
 
 with st.sidebar:
     st.header("⚙️ Configuration")
@@ -19,7 +20,7 @@ with st.sidebar:
     
     st.divider()
     risk_pc = st.slider("Risque par trade (%)", 0.5, 15.0, 10.0) / 100
-    lookback = st.slider("Fenêtre du Swing (jours)", 7, 90, 30)
+    lookback = st.slider("Fenêtre du Swing (jours)", 7, 120, 60)
 
 # --- FONCTIONS TECHNIQUES ---
 def get_ichimoku_score(data, mode_trade):
@@ -47,7 +48,20 @@ def calculate_atr(data, period=14):
     true_range = np.max(ranges, axis=1)
     return true_range.rolling(period).mean()
 
-# --- BOUTONS D'ACTION (CONSERVÉS) ---
+def find_distinct_swings(data, mode_trade, min_dist_days=5):
+    col = 'High' if mode_trade == "ACHAT (Long)" else 'Low'
+    swings = []
+    df_temp = data.copy().sort_values(by=col, ascending=(mode_trade == "VENTE (Short)"))
+    
+    for idx, row in df_temp.iterrows():
+        # Vérifier si ce nouveau point est assez loin des swings déjà trouvés
+        if all(abs((idx - pd.to_datetime(s['Date'])).days) >= min_dist_days for s in swings):
+            swings.append({'Date': idx.strftime('%Y-%m-%d'), 'Prix': round(row[col], 2)})
+        if len(swings) >= 2:
+            break
+    return pd.DataFrame(swings)
+
+# --- BOUTONS D'ACTION ---
 col_btn1, col_btn2 = st.columns(2)
 btn_analyse = col_btn1.button("🚀 Analyser la Confluence")
 btn_anticipe = col_btn2.button("📈 Anticiper : Plan de Trade")
@@ -63,36 +77,30 @@ if btn_analyse or btn_anticipe:
 
             px_actuel = df_15['Close'].iloc[-1]
 
-            # --- 1. SMART SWING & FIBONACCI (DÉTECTION MULTI-SWING) ---
+            # --- 1. DÉTECTION DES SWINGS DISTINCTS ---
             df_recent = df_d.tail(lookback)
-            col_target = 'High' if mode == "ACHAT (Long)" else 'Low'
+            swings_df = find_distinct_swings(df_recent, mode)
             
-            # On récupère les 2 plus hauts (ou plus bas) pour le test utilisateur
-            top_swings = df_recent.sort_values(by=col_target, ascending=(mode == "VENTE (Short)")).head(2)
-            
-            # Pivot principal (le plus récent ou le plus extrême pour le tracé)
-            swing_point = top_swings[col_target].iloc[0]
-            swing_date = top_swings.index[0].strftime('%Y-%m-%d')
+            # Pivot pour le tracé (le plus extrême)
+            swing_point = swings_df.iloc[0]['Prix']
+            swing_date = swings_df.iloc[0]['Date']
             
             base_ref = df_recent['Low'].min() if mode == "ACHAT (Long)" else df_recent['High'].max()
             diff = abs(swing_point - base_ref)
             
-            f_05 = swing_point - (0.5 * diff) if mode == "ACHAT (Long)" else swing_point + (0.5 * diff)
-            f_0618 = swing_point - (0.618 * diff) if mode == "ACHAT (Long)" else swing_point + (0.618 * diff)
-            f_0786 = swing_point - (0.786 * diff) if mode == "ACHAT (Long)" else swing_point + (0.786 * diff)
-            f_target = swing_point + (0.618 * diff) if mode == "ACHAT (Long)" else swing_point - (0.618 * diff)
+            f_levels = {
+                "0.5": swing_point - (0.5 * diff) if mode == "ACHAT (Long)" else swing_point + (0.5 * diff),
+                "0.618": swing_point - (0.618 * diff) if mode == "ACHAT (Long)" else swing_point + (0.618 * diff),
+                "0.786": swing_point - (0.786 * diff) if mode == "ACHAT (Long)" else swing_point + (0.786 * diff),
+                "1.618": swing_point + (0.618 * diff) if mode == "ACHAT (Long)" else swing_point - (0.618 * diff)
+            }
 
             # --- 2. SCORES, VOLUME & ATR ---
             score_d, _, _, _, _ = get_ichimoku_score(df_d, mode)
             score_15, tk_15, kj_15, sa_15, sb_15 = get_ichimoku_score(df_15, mode)
-            
-            vol_actuel = df_15['Volume'].iloc[-1]
-            vol_moyen = df_15['Volume'].rolling(20).mean().iloc[-1]
-            ratio_vol = vol_actuel / vol_moyen
-            
-            atr_series = calculate_atr(df_15)
-            atr_val = atr_series.iloc[-1]
-            atr_status = "DANGER 🔴" if atr_val > atr_series.tail(100).mean() * 1.5 else "STABLE ✅"
+            vol_ratio = df_15['Volume'].iloc[-1] / df_15['Volume'].rolling(20).mean().iloc[-1]
+            atr_v = calculate_atr(df_15).iloc[-1]
+            atr_status = "DANGER 🔴" if atr_v > calculate_atr(df_15).tail(100).mean() * 1.5 else "STABLE ✅"
 
             # --- 3. AFFICHAGE DES MÉTRIQUES ---
             st.divider()
@@ -101,52 +109,34 @@ if btn_analyse or btn_anticipe:
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Date du Pivot", swing_date, f"{swing_point:.2f} $")
             c2.metric("Scores (D|15m)", f"{score_d}/4 | {score_15}/4")
-            c3.metric("Intensité Volume", f"{ratio_vol:.2f}x", delta="Conviction" if ratio_vol >= 0.8 else "Faible", delta_color="normal" if ratio_vol >= 0.8 else "inverse")
-            c4.metric("Volatilité ATR", f"{atr_val:.2f}", delta=atr_status, delta_color="normal" if atr_status == "STABLE ✅" else "inverse")
+            c3.metric("Intensité Volume", f"{vol_ratio:.2f}x", delta="Conviction" if vol_ratio >= 0.8 else "Faible")
+            c4.metric("Volatilité ATR", f"{atr_val if 'atr_val' in locals() else atr_v:.2f}", delta=atr_status)
             st.divider()
 
-            # --- AJOUT : IDENTIFICATION POUR TEST MANUEL ---
-            st.write("🔍 **Derniers Swings identifiés (pour tes tests historiques) :**")
-            for i, (idx, row) in enumerate(top_swings.iterrows()):
-                st.code(f"Swing {i+1} : Date {idx.strftime('%Y-%m-%d')} | Prix {row[col_target]:.2f}$")
+            st.write("🔍 **Swings Majeurs Distincts identifiés :**")
+            st.table(swings_df)
 
             if btn_analyse:
                 st.subheader("🚀 Diagnostic de Confluence")
-                en_zone = min(f_05, f_0786) <= px_actuel <= max(f_05, f_0786)
-                
-                if en_zone:
-                    if ratio_vol < 0.8:
-                        st.warning("⚠️ ATTENTION : Le prix est en zone, mais l'intensité du volume est trop faible (< 0.8x).")
-                    elif atr_status == "DANGER 🔴":
-                        st.error("❌ DANGER : Volatilité (ATR) excessive. Risque de cassure brutale.")
-                    elif ratio_vol >= 1.2:
-                        st.success("🎯 CONFLUENCE MAJEURE : Zone + Volume + ATR alignés.")
-                    else:
-                        st.info("🔭 ZONE ATTEINTE : Les conditions sont correctes, mais un pic de volume confirmerait.")
+                en_zone = min(f_levels["0.5"], f_levels["0.786"]) <= px_actuel <= max(f_levels["0.5"], f_levels["0.786"])
+                if en_zone and vol_ratio >= 1.2 and atr_status == "STABLE ✅":
+                    st.success("🎯 CONFLUENCE MAJEURE : Zone + Volume + ATR alignés.")
                 else:
-                    st.info("🔭 Observation : Le prix n'est pas encore en zone optimale.")
+                    st.info("🔭 Observation : En attente d'une confluence parfaite.")
 
             elif btn_anticipe:
                 st.subheader("📉 Plan Stratégique")
-                recommandation = f_0786 if (mode == "ACHAT (Long)" and px_actuel < f_0618) else f_0618
-                st.write(f"### Prix d'entrée suggéré : **{recommandation:.2f} $** | Objectif : **{f_target:.2f} $**")
+                recommandation = f_levels["0.618"]
+                st.write(f"### Prix d'entrée suggéré : **{recommandation:.2f} $** | Objectif : **{f_levels['1.618']:.2f} $**")
 
             # --- 4. GRAPHIQUE ---
-            df_plot = df_15.tail(lookback * 15)
+            df_plot = df_15.tail(600)
             fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
             fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'], name='Prix'), row=1, col=1)
             
-            fig.add_trace(go.Scatter(x=df_15.index, y=sa_15, line=dict(color='rgba(0, 255, 0, 0.1)'), name='Kumo A'), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df_15.index, y=sb_15, line=dict(color='rgba(255, 0, 0, 0.1)'), fill='tonexty', name='Kumo B'), row=1, col=1)
-            
-            color_z = "rgba(0, 255, 0, 0.12)" if mode == "ACHAT (Long)" else "rgba(255, 0, 0, 0.12)"
-            fig.add_hrect(y0=f_0786, y1=f_05, fillcolor=color_z, line_width=0, annotation_text="ZONE ACTION", annotation_position="top left", row=1, col=1)
-            
-            for label, val in {"0.618": f_0618, "0.786": f_0786, "OBJ 1.618": f_target}.items():
-                fig.add_hline(y=val, line_dash="dot", line_color="rgba(255,255,255,0.3)", annotation_text=f"{label}: {val:.2f}$", annotation_position="bottom right", row=1, col=1)
-
-            v_colors = ['#26a69a' if v > vol_moyen else '#ef5350' for v in df_plot['Volume']]
-            fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['Volume'], marker_color=v_colors), row=2, col=1)
+            fig.add_hrect(y0=f_levels["0.786"], y1=f_levels["0.5"], fillcolor="rgba(0, 255, 0, 0.12)", line_width=0, annotation_text="ZONE ACTION", annotation_position="top left", row=1, col=1)
+            for lbl, val in f_levels.items():
+                fig.add_hline(y=val, line_dash="dot", line_color="rgba(255,255,255,0.4)", annotation_text=f"{lbl}: {val:.2f}$", annotation_position="bottom right", row=1, col=1)
 
             fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
