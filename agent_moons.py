@@ -73,7 +73,6 @@ try:
         swings_df, dist_calculee = find_dynamic_swings(df_recent, mode, atr_d)
         
         t1_pivot = swings_df.iloc[0]['Prix'] 
-        t1_date = swings_df.iloc[0]['Date']
         
         base_ref = df_recent['Low'].min() if mode == "ACHAT (Long)" else df_recent['High'].max()
         diff = abs(t1_pivot - base_ref)
@@ -89,7 +88,14 @@ try:
         kumo_limit = min(sa_d.iloc[-1], sb_d.iloc[-1]) if mode == "ACHAT (Long)" else max(sa_d.iloc[-1], sb_d.iloc[-1])
         is_contre_tendance = (mode == "ACHAT (Long)" and trend_label == "BAISSIER 📉") or (mode == "VENTE (Short)" and trend_label == "HAUSSIER 📈")
         
-        tp2_final = kumo_limit if is_contre_tendance else (t1_pivot + (0.618 * diff) if mode == "ACHAT (Long)" else t1_pivot - (0.618 * diff))
+        # AJUSTEMENT C3 (Avec vérification de cohérence)
+        tp2_theo = (t1_pivot + (0.618 * diff) if mode == "ACHAT (Long)" else t1_pivot - (0.618 * diff))
+        if is_contre_tendance:
+            # On plafonne au Kumo, mais on vérifie que cela reste profitable
+            tp2_final = kumo_limit if (mode == "ACHAT (Long)" and kumo_limit > f_entree) or (mode == "VENTE (Short)" and kumo_limit < f_entree) else tp2_theo
+        else:
+            tp2_final = tp2_theo
+
         tp1_secure = (f_entree + tp2_final) / 2
         tp3_grand_profit = t1_pivot + (1.618 * diff) if mode == "ACHAT (Long)" else t1_pivot - (1.618 * diff)
         qty = int((capital * risk_pc) / abs(f_entree - f_stop)) if abs(f_entree - f_stop) > 0 else 0
@@ -110,36 +116,29 @@ try:
         if col_btn1.button("🚀 Analyser la Confluence"):
             st.table(swings_df)
         if col_btn2.button("📈 Anticiper : Plan de Trade"):
-            st.info(f"Entrée: {f_entree:.2f}$ | Qty: {qty} | TP1: {tp1_secure:.2f}$ | TP2: {tp2_final:.2f}$")
+            # Alerte si C3 reste incohérent malgré l'ajustement
+            if (mode == "ACHAT (Long)" and tp2_final <= f_entree) or (mode == "VENTE (Short)" and tp2_final >= f_entree):
+                st.error("❌ INCOHÉRENCE : L'objectif de profit (C3) est bloqué par le nuage Ichimoku. Trade impossible.")
+            else:
+                st.info(f"Entrée: {f_entree:.2f}$ | Qty: {qty} | TP1: {tp1_secure:.2f}$ | TP2: {tp2_final:.2f}$")
         if col_btn3.button("📋 Voir la Fiche du Trade"):
             st.table(pd.DataFrame({"Paramètre": ["Quantité", "Entrée", "Stop", "TP1", "TP2"], "Valeur": [qty, f_entree, f_stop, tp1_secure, tp2_final]}))
 
-        # --- GRAPHIQUE AMÉLIORÉ ---
+        # --- GRAPHIQUE ---
         df_plot = df_15.tail(600)
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
         fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'], name='Prix'), row=1, col=1)
         
-        # Ajout des dates de swing sur le graphique
-        for idx, row in swings_df.iterrows():
-            swing_dt = pd.to_datetime(row['Date'])
-            if swing_dt in df_plot.index:
-                fig.add_vline(x=swing_dt, line_dash="dash", line_color="white", line_width=1, row=1, col=1)
-                fig.add_annotation(x=swing_dt, y=row['Prix'], text=f"PIVOT {row['Date'][:10]}", showarrow=True, arrowhead=2, row=1, col=1)
-
-        # Niveaux Horizontaux
         levels = {"T1": t1_pivot, "C2": f_entree, "SOLDES": f_soldes, "TP1": tp1_secure, "TP2": tp2_final, "STOP": f_stop}
         colors = {"T1": "white", "C2": "cyan", "SOLDES": "yellow", "TP1": "#FFA500", "TP2": "#00FF00", "STOP": "red"}
         for lbl, val in levels.items():
             fig.add_hline(y=val, line_dash="dot", line_color=colors[lbl], annotation_text=f"{lbl}: {val:.2f}$", annotation_position="top left", row=1, col=1)
 
-        # Correction de l'erreur : sa_15 (simple souligné)
+        # Correction : sa_15
         _, sa_15, sb_15 = get_ichimoku_score(df_15, mode)
         fig.add_trace(go.Scatter(x=df_15.index, y=sa_15, line=dict(color='rgba(0, 255, 0, 0.1)'), name='Kumo A'), row=1, col=1)
         fig.add_trace(go.Scatter(x=df_15.index, y=sb_15, line=dict(color='rgba(255, 0, 0, 0.1)'), fill='tonexty', name='Kumo B'), row=1, col=1)
         
-        v_colors = ['#26a69a' if c >= o else '#ef5350' for o, c in zip(df_plot['Open'], df_plot['Close'])]
-        fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['Volume'], marker_color=v_colors), row=2, col=1)
-
         fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, showlegend=False)
         st.plotly_chart(fig, use_container_width=True)
 
