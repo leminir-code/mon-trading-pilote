@@ -19,8 +19,8 @@ with st.sidebar:
     mode = st.radio("Direction du Trade", ["ACHAT (Long)", "VENTE (Short)"])
     
     st.divider()
-    risk_pc = st.slider("Risque par trade (%)", 0.5, 15.0, 10.0) / 100
-    lookback_max = st.slider("Fenêtre Max du Swing (jours)", 15, 120, 60)
+    risk_pc = st.slider("Risque par trade (%)", 0.5, 15.0, 5.0) / 100
+    lookback_max = st.slider("Fenêtre Max du Swing (jours)", 15, 120, 90)
 
 # --- FONCTIONS TECHNIQUES ---
 def get_ichimoku_score(data, mode_trade):
@@ -79,55 +79,57 @@ if btn_analyse or btn_anticipe or btn_save:
             df_recent = df_d.tail(lookback_max)
             swings_df, dist_calculee = find_dynamic_swings(df_recent, mode, atr_d)
             
-            swing_point = swings_df.iloc[0]['Prix']
+            t1_pivot = swings_df.iloc[0]['Prix'] # T1 Valeur Pivot
             base_ref = df_recent['Low'].min() if mode == "ACHAT (Long)" else df_recent['High'].max()
-            diff = abs(swing_point - base_ref)
+            diff = abs(t1_pivot - base_ref)
             
-            # --- CALCULS NIVEAUX AMÉLIORÉS ---
-            f_entree = swing_point - (0.618 * diff) if mode == "ACHAT (Long)" else swing_point + (0.618 * diff)
-            f_soldes = swing_point - (0.786 * diff) if mode == "ACHAT (Long)" else swing_point + (0.786 * diff)
-            f_stop = swing_point - (0.95 * diff) if mode == "ACHAT (Long)" else swing_point + (0.95 * diff)
+            # --- CALCULS NIVEAUX SÉCURISÉS ---
+            f_entree = t1_pivot - (0.618 * diff) if mode == "ACHAT (Long)" else t1_pivot + (0.618 * diff)
+            f_soldes = t1_pivot - (0.786 * diff) if mode == "ACHAT (Long)" else t1_pivot + (0.786 * diff)
+            f_stop = t1_pivot - (0.95 * diff) if mode == "ACHAT (Long)" else t1_pivot + (0.95 * diff)
             
-            # Cibles échelonnées
-            tp1_raw = swing_point # Pivot lui-même
-            tp2_raw = swing_point + (0.618 * diff) if mode == "ACHAT (Long)" else swing_point - (0.618 * diff)
-            tp3_raw = swing_point + (1.618 * diff) if mode == "ACHAT (Long)" else swing_point - (1.618 * diff)
-
-            # Analyse Tendance & Sécurité
+            # Analyse Tendance (POUR LE TITRE)
             score_trend, sa_d, sb_d = get_ichimoku_score(df_d, mode)
             trend_label = "HAUSSIER 📈" if score_trend >= 3 else "BAISSIER 📉" if score_trend <= 1 else "NEUTRE ⚖️"
+            trend_color = "#00FF00" if trend_label == "HAUSSIER 📈" else "#FF0000" if trend_label == "BAISSIER 📉" else "#FFA500"
+
+            # Ajustement C3 par le Nuage (Kumo)
             kumo_limit = min(sa_d.iloc[-1], sb_d.iloc[-1]) if mode == "ACHAT (Long)" else max(sa_d.iloc[-1], sb_d.iloc[-1])
             is_contre_tendance = (mode == "ACHAT (Long)" and trend_label == "BAISSIER 📉") or (mode == "VENTE (Short)" and trend_label == "HAUSSIER 📈")
             
-            # Ajustement si contre-tendance
-            tp2 = kumo_limit if is_contre_tendance else tp2_raw
-            tp1 = (f_entree + tp2) / 2 if is_contre_tendance else tp1_raw
-            tp3 = tp2 if is_contre_tendance else tp3_raw
+            # Cibles (TP1, TP2, TP3)
+            tp2_final = kumo_limit if is_contre_tendance else (t1_pivot + (0.618 * diff) if mode == "ACHAT (Long)" else t1_pivot - (0.618 * diff))
+            tp1_secure = (f_entree + tp2_final) / 2
+            tp3_grand_profit = t1_pivot + (1.618 * diff) if mode == "ACHAT (Long)" else t1_pivot - (1.618 * diff)
 
-            # --- AFFICHAGE MÉTRIQUES (NOMENCLATURE MISE À JOUR) ---
+            # --- AFFICHAGE MÉTRIQUES (RÉTABLISSEMENT TENDANCE) ---
             st.divider()
             st.markdown(f"<h1 style='text-align: center;'>{ticker} : {px_actuel:.2f} $</h1>", unsafe_allow_html=True)
+            st.markdown(f"<h3 style='text-align: center; color: {trend_color};'>Marché {trend_label}</h3>", unsafe_allow_html=True)
             
+            if is_contre_tendance:
+                st.warning(f"⚠️ **ALERTE CONTRE-TENDANCE** : Cible (C3) ajustée à la lisière du nuage.")
+
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("C1 (T1 Valeur Pivot)", swings_df.iloc[0]['Date'], f"{swing_point:.2f} $")
+            c1.metric("C1 (T1 Valeur Pivot)", swings_df.iloc[0]['Date'], f"{t1_pivot:.2f} $")
             c2.metric("C2 (Prix d'entrée)", f"{f_entree:.2f} $")
-            c3.metric("C3 (Prix de vente TP2)", f"{tp2:.2f} $")
+            c3.metric("C3 (Prix de vente TP2)", f"{tp2_final:.2f} $", delta="Ajusté" if is_contre_tendance else None)
             c4.metric("C4 (Filtre Dynamique)", f"{dist_calculee} jrs")
             st.divider()
 
-            # --- TICKET D'ORDRE AVEC SORTIES ÉCHELONNÉES ---
+            # --- TICKET D'ORDRE (ACCUMULATION & SORTIES ÉCHELONNÉES) ---
             if btn_anticipe:
-                st.subheader(f"📋 Plan d'Exécution Courtage (Capital : {capital} $)")
+                st.subheader(f"📋 Ticket d'Ordre Courtage (Investissement : {capital} $)")
                 qty = int((capital * risk_pc) / abs(f_entree - f_stop)) if abs(f_entree - f_stop) > 0 else 0
                 
                 col_t1, col_t2 = st.columns(2)
                 with col_t1:
-                    st.info(f"**ZONE D'ACCUMULATION**\n- **Entrée (C2) :** {f_entree:.2f} $\n- **ZONE SOLDES :** {f_soldes:.2f} $\n- **Quantité :** {qty} titres")
+                    st.info(f"**ACCUMULATION / SOLDES**\n- **Entrée (C2) :** {f_entree:.2f} $\n- **ZONE SOLDES :** {f_soldes:.2f} $\n- **Quantité :** {qty} titres")
                 with col_t2:
-                    st.success(f"**SORTIES À PROFIT**\n- **TP1 (50% titres) :** {tp1:.2f} $\n- **TP2 (30% titres) :** {tp2:.2f} $\n- **TP3 (Profit Max) :** {tp3:.2f} $\n- **STOP LOSS :** {f_stop:.2f} $")
+                    st.success(f"**SORTIES À PROFIT**\n- **TP1 (Vendre 50%) :** {tp1_secure:.2f} $\n- **TP2 / C3 (Vendre 30%) :** {tp2_final:.2f} $\n- **TP3 (Profit Max 20%) :** {tp3_grand_profit:.2f} $\n- **STOP LOSS :** {f_stop:.2f} $")
 
             if btn_save:
-                report = f"TRADE {ticker}\nENTRÉE : {f_entree:.2f} $\nTP1 : {tp1:.2f} | TP2 : {tp2:.2f} | TP3 : {tp3:.2f}"
+                report = f"TRADE {ticker} - {trend_label}\nENTRÉE (C2): {f_entree:.2f} $\nTP1: {tp1_secure:.2f} | TP2: {tp2_final:.2f} | TP3: {tp3_grand_profit:.2f}"
                 st.download_button("📥 Télécharger le Ticket (.txt)", report, file_name=f"Trade_{ticker}.txt")
 
             # --- GRAPHIQUE ---
@@ -136,12 +138,12 @@ if btn_analyse or btn_anticipe or btn_save:
             fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'], name='Prix'), row=1, col=1)
             
             # Niveaux Fib (Labels Gauche)
-            levels = {"C2 (ENTRÉE)": f_entree, "SOLDES": f_soldes, "TP1": tp1, "TP2": tp2, "TP3": tp3, "STOP": f_stop}
-            colors = {"C2 (ENTRÉE)": "cyan", "SOLDES": "yellow", "TP1": "#FFA500", "TP2": "#00FF00", "TP3": "#00FFFF", "STOP": "red"}
+            levels = {"T1 (PIVOT)": t1_pivot, "C2 (ENTRÉE)": f_entree, "SOLDES": f_soldes, "TP1": tp1_secure, "TP2": tp2_final, "TP3": tp3_grand_profit, "STOP": f_stop}
+            colors = {"T1 (PIVOT)": "white", "C2 (ENTRÉE)": "cyan", "SOLDES": "yellow", "TP1": "#FFA500", "TP2": "#00FF00", "TP3": "#00FFFF", "STOP": "red"}
             for lbl, val in levels.items():
                 fig.add_hline(y=val, line_dash="dot", line_color=colors[lbl], annotation_text=f"{lbl}: {val:.2f}$", annotation_position="top left", row=1, col=1)
 
-            # Volume & Nuage Ichimoku
+            # Ichimoku & Volume
             _, sa_15, sb_15 = get_ichimoku_score(df_15, mode)
             fig.add_trace(go.Scatter(x=df_15.index, y=sa_15, line=dict(color='rgba(0, 255, 0, 0.1)'), name='Kumo A'), row=1, col=1)
             fig.add_trace(go.Scatter(x=df_15.index, y=sb_15, line=dict(color='rgba(255, 0, 0, 0.1)'), fill='tonexty', name='Kumo B'), row=1, col=1)
