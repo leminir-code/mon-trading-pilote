@@ -19,11 +19,11 @@ with st.expander("📖 DOCUMENTATION & ALGORITHME DE L'AGENT"):
 
 with st.sidebar:
     st.header("⚙️ Configuration")
-    ticker = st.text_input("🔍 Symbole", value="META").upper()
+    ticker = st.text_input("🔍 Symbole", value="NVDA").upper()
     capital = st.number_input("💰 Capital ($)", value=10000)
     mode = st.radio("Direction du Trade", ["ACHAT (Long)", "VENTE (Short)"])
     risk_pc = st.slider("Risque par trade (%)", 0.5, 15.0, 5.0) / 100
-    lookback_max = st.slider("Fenêtre Max du Swing (jours)", 15, 120, 90)
+    lookback_max = st.slider("Fenêtre Max du Swing (jours)", 15, 120, 91)
 
 # --- FONCTIONS TECHNIQUES ---
 def get_ichimoku_score(data, mode_trade):
@@ -114,29 +114,32 @@ try:
         if col_btn3.button("📋 Voir la Fiche du Trade"):
             st.table(pd.DataFrame({"Paramètre": ["Quantité", "Entrée", "Stop", "TP1", "TP2"], "Valeur": [qty, f_entree, f_stop, tp1_secure, tp2_final]}))
 
-        # --- GRAPHIQUE AMÉLIORÉ AVEC DATES ---
+        # --- GRAPHIQUE AMÉLIORÉ ---
         df_plot = df_15.tail(600)
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
         fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'], name='Prix'), row=1, col=1)
         
-        # AJOUT DES LIGNES DE DATES (SWINGS)
+        # Ajout des dates de swing sur le graphique
         for idx, row in swings_df.iterrows():
             swing_dt = pd.to_datetime(row['Date'])
             if swing_dt in df_plot.index:
                 fig.add_vline(x=swing_dt, line_dash="dash", line_color="white", line_width=1, row=1, col=1)
                 fig.add_annotation(x=swing_dt, y=row['Prix'], text=f"PIVOT {row['Date'][:10]}", showarrow=True, arrowhead=2, row=1, col=1)
 
-        # Niveaux Horizontaux (Labels Gauche)
+        # Niveaux Horizontaux
         levels = {"T1": t1_pivot, "C2": f_entree, "SOLDES": f_soldes, "TP1": tp1_secure, "TP2": tp2_final, "STOP": f_stop}
         colors = {"T1": "white", "C2": "cyan", "SOLDES": "yellow", "TP1": "#FFA500", "TP2": "#00FF00", "STOP": "red"}
         for lbl, val in levels.items():
             fig.add_hline(y=val, line_dash="dot", line_color=colors[lbl], annotation_text=f"{lbl}: {val:.2f}$", annotation_position="top left", row=1, col=1)
 
-        # Ichimoku & Volume
+        # Correction de l'erreur : sa_15 (simple souligné)
         _, sa_15, sb_15 = get_ichimoku_score(df_15, mode)
-        fig.add_trace(go.Scatter(x=df_15.index, y=sa__15, line=dict(color='rgba(0, 255, 0, 0.1)'), name='Kumo A'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df_15.index, y=sa_15, line=dict(color='rgba(0, 255, 0, 0.1)'), name='Kumo A'), row=1, col=1)
         fig.add_trace(go.Scatter(x=df_15.index, y=sb_15, line=dict(color='rgba(255, 0, 0, 0.1)'), fill='tonexty', name='Kumo B'), row=1, col=1)
         
+        v_colors = ['#26a69a' if c >= o else '#ef5350' for o, c in zip(df_plot['Open'], df_plot['Close'])]
+        fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['Volume'], marker_color=v_colors), row=2, col=1)
+
         fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, showlegend=False)
         st.plotly_chart(fig, use_container_width=True)
 
