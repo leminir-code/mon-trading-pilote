@@ -136,3 +136,26 @@ if st.button("🚀 ENVOYER LE PLAN DE TRADE À TWS"):
             st.balloons()
         else:
             st.error("❌ Échec de l'envoi. Vérifie que TWS est ouvert en mode Simulation.")
+
+# --- FIN DE TON CODE EXISTANT ---
+except Exception as e:
+    st.error(f"Erreur : {e}")
+
+# --- MODULE D'EXÉCUTION TWS (ISOLE ET PROPRE) ---
+try:
+    from ib_bridge import executer_plan_moons
+    
+    st.divider()
+    st.subheader("⚡ Exécution Directe TWS")
+    
+    # On crée le bouton seulement si les données sont prêtes
+    if 'ticker' in locals() and st.button("🚀 ENVOYER LE PLAN DE TRADE À TWS"):
+        with st.spinner("Connexion à TWS et envoi des ordres..."):
+            succes = executer_plan_moons(ticker, qty, f_entree, f_stop, tp2_final)
+            if succes:
+                st.success(f"✅ Ordres envoyés avec succès pour {ticker}")
+                st.balloons()
+            else:
+                st.error("❌ Échec de l'envoi. Vérifie TWS.")
+except Exception as e_bridge:
+    st.warning("Module d'exécution en attente de configuration.")
