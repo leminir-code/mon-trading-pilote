@@ -122,17 +122,17 @@ try:
         fig.update_layout(template="plotly_dark", height=850, xaxis_rangeslider_visible=False, showlegend=False)
         st.plotly_chart(fig, use_container_width=True)
         # --- MODULE D'EXÉCUTION (AJOUT) ---
-        from ib_bridge import executer_plan_moons
-        st.divider()
-        st.subheader("⚡ Exécution Directe TWS")
-        if st.button("🚀 ENVOYER LE PLAN DE TRADE À TWS"):
-        with st.spinner("Connexion à TWS et envoi des ordres..."):
+        
+from ib_bridge import executer_plan_moons
+
+st.divider()
+st.subheader("⚡ Exécution Directe TWS")
+if st.button("🚀 ENVOYER LE PLAN DE TRADE À TWS"):
+    # ICI : Assure-toi qu'il y a 4 espaces (ou une tabulation) au début des lignes ci-dessous
+    with st.spinner("Connexion à TWS et envoi des ordres..."):
         succes = executer_plan_moons(ticker, qty, f_entree, f_stop, tp2_final)
         if succes:
             st.success(f"✅ Ordres Bracket envoyés avec succès pour {ticker} (Qty: {qty})")
             st.balloons()
         else:
             st.error("❌ Échec de l'envoi. Vérifie que TWS est ouvert en mode Simulation.")
-
-except Exception as e:
-    st.error(f"Erreur : {e}")
