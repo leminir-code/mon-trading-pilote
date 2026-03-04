@@ -123,7 +123,6 @@ try:
         st.plotly_chart(fig, use_container_width=True)
         # --- MODULE D'EXÉCUTION (AJOUT) ---
         from ib_bridge import executer_plan_moons
-
         st.divider()
         st.subheader("⚡ Exécution Directe TWS")
         if st.button("🚀 ENVOYER LE PLAN DE TRADE À TWS"):
